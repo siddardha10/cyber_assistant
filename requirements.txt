@@ -1,0 +1,23 @@
+# Core (all platforms)
+psutil>=5.9
+rich>=13.7
+flask>=3.0
+flask-cors>=4.0
+python-dotenv>=1.0
+
+# Windows-only (USB, logins, services, registry access)
+pywin32>=306; sys_platform == "win32"
+wmi>=1.5.1; sys_platform == "win32"
+
+# Optional: filesystem watcher
+watchdog>=4.0
+
+# Optional: desktop notifications
+plyer>=2.1
+
+# Optional: LLM query engine (Approach A) — omit if you only want offline mode
+anthropic>=0.34
+
+# Optional: raw packet capture (requires Npcap on Windows, admin rights)
+# Uncomment if you enable CS_ENABLE_SNIFFER=true
+# scapy>=2.5

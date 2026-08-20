@@ -1,0 +1,1099 @@
+<!DOCTYPE html>
+<!-- v2.1 session-history -->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CyberSentinel</title>
+<meta name="description" content="CyberSentinel — personal cybersecurity monitoring assistant for your local machine.">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-void:#0B0F14;
+    --bg-panel:#0F151C;
+    --bg-panel-raised:#141C25;
+    --bg-input:#111820;
+    --line:#1E2A35;
+    --line-soft:#182129;
+    --text-hi:#E8EEF2;
+    --text-mid:#8CA0AD;
+    --text-dim:#546672;
+    --teal:#2DD4BF;
+    --teal-dim:#1A8577;
+    --teal-glow:rgba(45,212,191,0.15);
+    --amber:#F5A623;
+    --amber-glow:rgba(245,166,35,0.15);
+    --red:#FF5470;
+    --red-glow:rgba(255,84,112,0.15);
+    --font-display:'Space Grotesk', sans-serif;
+    --font-body:'Inter', sans-serif;
+    --font-mono:'JetBrains Mono', monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    background:var(--bg-void);
+    color:var(--text-hi);
+    font-family:var(--font-body);
+    overflow:hidden;
+    background-image:
+      radial-gradient(circle at 15% 0%, rgba(45,212,191,0.06), transparent 40%),
+      radial-gradient(circle at 85% 100%, rgba(245,166,35,0.04), transparent 40%);
+  }
+  ::selection{background:var(--teal-glow);color:var(--text-hi);}
+  ::-webkit-scrollbar{width:6px;height:6px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+  ::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px;}
+  ::-webkit-scrollbar-thumb:hover{background:var(--text-dim);}
+
+  /* ── layout ── */
+  .app{display:grid;grid-template-columns:240px 1fr 290px;height:100vh;}
+
+  /* ── sidebar ── */
+  .sidebar{
+    background:var(--bg-panel);
+    border-right:1px solid var(--line-soft);
+    display:flex;flex-direction:column;
+    padding:16px 12px;overflow:hidden;
+    min-height:0;
+  }
+  .new-session{
+    display:flex;align-items:center;gap:8px;
+    width:100%;padding:9px 12px;margin-bottom:6px;
+    background:var(--bg-panel-raised);border:1px solid var(--line);
+    border-radius:9px;color:var(--text-mid);
+    font-family:var(--font-body);font-size:13px;
+    cursor:pointer;transition:all .15s;
+  }
+  .new-session:hover{border-color:var(--teal-dim);color:var(--teal);background:var(--teal-glow);}
+  .new-session svg{width:14px;height:14px;flex-shrink:0;}
+  .brand{display:flex;align-items:center;gap:10px;padding:4px 6px 16px 6px;}
+  .brand-mark{
+    width:28px;height:28px;border-radius:8px;flex-shrink:0;
+    background:linear-gradient(135deg,var(--teal),var(--teal-dim));
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:0 0 14px var(--teal-glow);
+  }
+  .brand-mark svg{width:15px;height:15px;}
+  .brand-name{font-family:var(--font-display);font-weight:600;font-size:14px;}
+  .brand-sub{font-family:var(--font-mono);font-size:9.5px;color:var(--text-dim);letter-spacing:.5px;text-transform:uppercase;}
+
+  .section-label{
+    font-family:var(--font-mono);font-size:9.5px;letter-spacing:1px;
+    color:var(--text-dim);text-transform:uppercase;
+    padding:3px 7px;margin:10px 0 5px;
+  }
+
+  .monitor-list{display:flex;flex-direction:column;gap:1px;margin-bottom:12px;}
+  .monitor-row{
+    display:flex;align-items:center;gap:8px;
+    padding:6px 8px;border-radius:6px;font-size:12px;color:var(--text-mid);
+    cursor:pointer;transition:background .15s,color .15s;
+  }
+  .monitor-row:hover{background:var(--line-soft);color:var(--text-hi);}
+  .dot{width:5px;height:5px;border-radius:50%;flex-shrink:0;}
+  .dot.on{background:var(--teal);box-shadow:0 0 5px var(--teal);}
+  .dot.warn{background:var(--amber);box-shadow:0 0 5px var(--amber);}
+  .dot.off{background:var(--text-dim);}
+  .monitor-name{flex:1;font-size:12px;}
+  .monitor-val{font-family:var(--font-mono);font-size:10.5px;color:var(--text-dim);}
+
+  /* chat history sessions */
+  .history-list{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:2px;}
+  .history-item{
+    padding:8px 8px 6px;border-radius:6px;font-size:12px;
+    color:var(--text-mid);cursor:pointer;
+    overflow:hidden;
+    transition:background .15s,color .15s;
+  }
+  .history-item:hover{background:var(--line-soft);color:var(--text-hi);}
+  .history-item.active{background:var(--teal-glow);color:var(--teal);}
+  .history-item-q{
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    font-size:12px;line-height:1.3;
+  }
+  .history-item-meta{
+    font-family:var(--font-mono);font-size:9px;color:var(--text-dim);
+    margin-top:3px;display:flex;gap:6px;
+  }
+  .history-item-meta span{opacity:.8;}
+
+  .sidebar-footer{
+    border-top:1px solid var(--line-soft);padding-top:10px;margin-top:8px;
+  }
+  .status-pill{
+    display:flex;align-items:center;gap:6px;
+    font-family:var(--font-mono);font-size:10px;
+    color:var(--teal);background:var(--teal-glow);
+    padding:5px 9px;border-radius:20px;
+    border:1px solid rgba(45,212,191,0.25);
+    width:fit-content;
+  }
+  .status-pill.offline{color:var(--red);background:var(--red-glow);border-color:rgba(255,84,112,0.25);}
+  .pulse-dot{width:5px;height:5px;border-radius:50%;background:currentColor;animation:pulseDot 2s infinite;}
+  @keyframes pulseDot{
+    0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(45,212,191,0.5);}
+    50%{opacity:.6;box-shadow:0 0 0 4px rgba(45,212,191,0);}
+  }
+
+  /* ── main chat ── */
+  .main{display:flex;flex-direction:column;background:var(--bg-void);min-width:0;min-height:0;overflow:hidden;}
+
+  .topbar{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:12px 22px;border-bottom:1px solid var(--line-soft);flex-shrink:0;
+  }
+  .topbar-title{font-family:var(--font-display);font-weight:600;font-size:14.5px;}
+  .topbar-sub{font-family:var(--font-mono);font-size:10px;color:var(--text-dim);margin-top:2px;}
+
+  .threat-level{
+    display:flex;align-items:center;gap:7px;position:relative;
+    font-family:var(--font-mono);font-size:10.5px;letter-spacing:.5px;
+    padding:6px 12px;border-radius:20px;cursor:pointer;
+    transition:transform .12s,background .3s,color .3s;
+  }
+  .threat-level:hover{transform:scale(1.03);}
+  .threat-level .bar{width:3px;height:10px;border-radius:2px;background:currentColor;}
+  .threat-level.low{background:var(--teal-glow);border:1px solid rgba(45,212,191,0.3);color:var(--teal);}
+  .threat-level.med{background:var(--amber-glow);border:1px solid rgba(245,166,35,0.3);color:var(--amber);}
+  .threat-level.high{background:var(--red-glow);border:1px solid rgba(255,84,112,0.3);color:var(--red);}
+
+  /* threat tooltip */
+  .threat-tooltip{
+    display:none;position:absolute;top:calc(100% + 10px);right:0;
+    background:var(--bg-panel);border:1px solid var(--line);border-radius:10px;
+    padding:12px 14px;min-width:340px;max-width:440px;
+    box-shadow:0 8px 24px rgba(0,0,0,0.45);z-index:100;
+    font-family:var(--font-body);font-size:12px;color:var(--text-mid);
+    animation:tooltipIn .2s ease;
+  }
+  .threat-tooltip::before{
+    content:'';position:absolute;top:-6px;right:18px;
+    width:10px;height:10px;background:var(--bg-panel);
+    border-left:1px solid var(--line);border-top:1px solid var(--line);
+    transform:rotate(45deg);
+  }
+  .threat-level:hover .threat-tooltip,
+  .threat-tooltip.pinned{display:block;}
+  @keyframes tooltipIn{from{opacity:0;transform:translateY(-4px);}to{opacity:1;transform:translateY(0);}}
+  .threat-tooltip-title{
+    font-family:var(--font-display);font-weight:600;font-size:12px;
+    color:var(--text-hi);margin-bottom:8px;
+  }
+  .threat-tooltip-row{
+    display:flex;align-items:flex-start;gap:7px;
+    padding:5px 0;border-bottom:1px dashed var(--line-soft);
+    font-size:11px;line-height:1.35;
+  }
+  .threat-tooltip-row:last-child{border-bottom:none;}
+  .threat-tooltip-sev{
+    font-family:var(--font-mono);font-size:9px;font-weight:600;
+    padding:2px 5px;border-radius:4px;flex-shrink:0;margin-top:1px;
+  }
+  .threat-tooltip-sev.high{color:var(--red);background:var(--red-glow);}
+  .threat-tooltip-sev.med{color:var(--amber);background:var(--amber-glow);}
+  .threat-tooltip-sev.low{color:var(--teal);background:var(--teal-glow);}
+  .threat-tooltip-msg{color:var(--text-mid);}
+  .threat-tooltip-occ{color:var(--amber);font-family:var(--font-mono);font-size:9.5px;font-weight:600;}
+  .threat-tooltip-why{color:var(--text-dim);font-size:10.5px;line-height:1.4;margin-top:3px;padding-left:1px;}
+  .threat-tooltip-why b{color:var(--text-mid);}
+  .threat-tooltip-cat{color:var(--text-dim);font-family:var(--font-mono);font-size:9.5px;}
+  .threat-tooltip-empty{color:var(--text-dim);font-style:italic;padding:4px 0;}
+
+  /* chat scroll */
+  .chat-scroll{
+    flex:1;overflow-y:auto;
+    padding:22px 22px 8px;
+    display:flex;flex-direction:column;gap:18px;
+    max-width:780px;width:100%;margin:0 auto;
+  }
+
+  .msg{display:flex;gap:11px;max-width:100%;}
+  .msg.user{flex-direction:row-reverse;}
+  .avatar{
+    width:26px;height:26px;border-radius:7px;flex-shrink:0;margin-top:2px;
+    display:flex;align-items:center;justify-content:center;
+    font-family:var(--font-mono);font-size:10px;font-weight:600;
+  }
+  .avatar.ai{background:linear-gradient(135deg,var(--teal),var(--teal-dim));color:#03211D;}
+  .avatar.you{background:var(--bg-panel-raised);border:1px solid var(--line);color:var(--text-mid);}
+
+  .bubble-col{display:flex;flex-direction:column;gap:5px;max-width:80%;}
+  .msg.user .bubble-col{align-items:flex-end;}
+  .bubble{padding:11px 14px;border-radius:13px;font-size:13.5px;line-height:1.55;}
+  .msg.ai .bubble{background:var(--bg-panel);border:1px solid var(--line-soft);border-top-left-radius:4px;}
+  .msg.user .bubble{background:var(--bg-panel-raised);border:1px solid var(--line);border-top-right-radius:4px;}
+  .bubble p{margin-bottom:7px;}
+  .bubble p:last-child{margin-bottom:0;}
+  .msg-time{font-family:var(--font-mono);font-size:9.5px;color:var(--text-dim);padding:0 3px;}
+
+  /* indented data rows inside answers */
+  .data-row{
+    font-family:var(--font-mono);font-size:11.5px;color:var(--text-mid);
+    padding:2px 0 2px 8px;border-left:2px solid var(--line);
+    margin:1px 0;line-height:1.4;
+  }
+  .data-section{display:flex;flex-direction:column;gap:1px;margin:7px 0 5px;}
+
+  /* source badge */
+  .source-badge{
+    display:inline-flex;align-items:center;gap:5px;
+    font-family:var(--font-mono);font-size:9px;letter-spacing:.3px;
+    padding:2px 7px;border-radius:4px;margin-top:5px;
+    color:var(--text-dim);background:var(--bg-panel-raised);border:1px solid var(--line-soft);
+  }
+  .source-badge.llm{color:var(--teal);border-color:rgba(45,212,191,0.2);background:var(--teal-glow);}
+  .source-badge.err{color:var(--red);border-color:rgba(255,84,112,0.2);background:var(--red-glow);}
+
+  /* inline quick-chips inside bubbles */
+  .quick-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;}
+  .qchip{
+    font-family:var(--font-mono);font-size:11px;
+    color:var(--text-mid);background:var(--bg-panel-raised);
+    border:1px solid var(--line);padding:5px 11px;border-radius:20px;
+    cursor:pointer;transition:all .15s;
+  }
+  .qchip:hover{border-color:var(--teal-dim);color:var(--teal);background:var(--teal-glow);}
+
+  /* explicit "resume live chat" action shown at the bottom of a read-only history view */
+  .resume-btn{
+    margin-top:10px;font-family:var(--font-mono);font-size:11.5px;font-weight:500;
+    color:var(--teal);background:var(--teal-glow);border:1px solid rgba(45,212,191,0.3);
+    padding:7px 14px;border-radius:20px;cursor:pointer;transition:all .15s;
+  }
+  .resume-btn:hover{background:var(--teal);color:#03211D;}
+
+  /* ── command palette (terminal-style suggestion dropdown) ── */
+  .input-zone{position:relative;}
+  .prompt-glyph{
+    font-family:var(--font-mono);font-weight:600;color:var(--teal-dim);
+    padding:9px 2px 9px 0;user-select:none;line-height:1.5;
+  }
+  .command-palette{
+    display:none;position:absolute;bottom:calc(100% + 8px);left:0;right:0;
+    background:var(--bg-panel);border:1px solid var(--line);border-radius:12px;
+    box-shadow:0 -8px 24px rgba(0,0,0,0.4);overflow:hidden;
+    max-height:280px;overflow-y:auto;z-index:50;
+  }
+  .command-palette.show{display:block;animation:paletteIn .15s ease;}
+  @keyframes paletteIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
+  .cmd-row{
+    display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;
+    border-bottom:1px solid var(--line-soft);transition:background .1s;
+  }
+  .cmd-row:last-child{border-bottom:none;}
+  .cmd-row:hover, .cmd-row.active{background:var(--teal-glow);}
+  .cmd-row-icon{
+    font-family:var(--font-mono);font-size:10px;color:var(--teal-dim);
+    background:var(--bg-panel-raised);border:1px solid var(--line);
+    padding:2px 7px;border-radius:5px;flex-shrink:0;white-space:nowrap;
+  }
+  .cmd-row-body{flex:1;min-width:0;}
+  .cmd-row-text{font-family:var(--font-mono);font-size:12.5px;color:var(--text-hi);}
+  .cmd-row-desc{font-size:11px;color:var(--text-dim);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .cmd-row-enter{font-family:var(--font-mono);font-size:9.5px;color:var(--teal);opacity:0;flex-shrink:0;}
+  .cmd-row.active .cmd-row-enter{opacity:1;}
+  .foot-hint{color:var(--text-dim);opacity:0;transition:opacity .15s;margin-left:6px;}
+  .input-foot.palette-open .foot-hint{opacity:1;}
+
+  /* typing indicator */
+  .typing{display:flex;gap:4px;padding:4px 0;}
+  .typing span{
+    width:5px;height:5px;border-radius:50%;background:var(--text-dim);
+    animation:typingBounce 1.2s infinite;
+  }
+  .typing span:nth-child(2){animation-delay:.15s;}
+  .typing span:nth-child(3){animation-delay:.3s;}
+  @keyframes typingBounce{0%,60%,100%{transform:translateY(0);opacity:.4;}30%{transform:translateY(-4px);opacity:1;}}
+
+  /* input area */
+  .input-zone{padding:10px 22px 20px;flex-shrink:0;}
+  .input-wrap{
+    max-width:780px;margin:0 auto;
+    background:var(--bg-input);border:1px solid var(--line);border-radius:14px;
+    padding:5px 5px 5px 16px;
+    display:flex;align-items:flex-end;gap:8px;
+    transition:border-color .15s,box-shadow .15s;
+  }
+  .input-wrap:focus-within{border-color:var(--teal-dim);box-shadow:0 0 0 3px var(--teal-glow);}
+  .input-wrap textarea{
+    flex:1;background:transparent;border:none;outline:none;resize:none;
+    color:var(--text-hi);font-family:var(--font-body);font-size:13.5px;line-height:1.5;
+    max-height:130px;padding:8px 0;
+  }
+  .input-wrap textarea::placeholder{color:var(--text-dim);}
+  .send-btn{
+    width:32px;height:32px;border-radius:9px;border:none;
+    background:var(--teal);color:#03211D;flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;
+    transition:transform .12s,background .15s;
+  }
+  .send-btn:hover{transform:scale(1.06);background:#3EE4CE;}
+  .send-btn:active{transform:scale(.94);}
+  .send-btn:disabled{background:var(--text-dim);cursor:not-allowed;transform:none;}
+  .send-btn svg{width:14px;height:14px;}
+  .input-foot{
+    max-width:780px;margin:6px auto 0;
+    text-align:center;font-family:var(--font-mono);font-size:9.5px;color:var(--text-dim);
+  }
+
+  /* ── right pulse panel ── */
+  .pulse{background:var(--bg-panel);border-left:1px solid var(--line-soft);display:flex;flex-direction:column;min-height:0;overflow:hidden;}
+  .pulse-head{padding:14px 16px 10px;border-bottom:1px solid var(--line-soft);}
+  .pulse-title{font-family:var(--font-display);font-weight:600;font-size:13px;display:flex;align-items:center;gap:7px;}
+  .live-dot{width:5px;height:5px;border-radius:50%;background:var(--red);animation:pulseDot 1.4s infinite;}
+  .pulse-sub{font-family:var(--font-mono);font-size:9.5px;color:var(--text-dim);margin-top:2px;}
+
+  .metrics{display:grid;grid-template-columns:1fr 1fr;gap:7px;padding:12px 16px;border-bottom:1px solid var(--line-soft);}
+  .metric{
+    background:var(--bg-panel-raised);border:1px solid var(--line-soft);
+    border-radius:8px;padding:8px 10px;
+    transition:border-color .15s,background .15s;
+  }
+  .metric.click{cursor:pointer;}
+  .metric.click:hover{border-color:var(--teal-dim);background:rgba(45,212,191,0.06);}
+  .metric.click:hover .metric-label::after{content:' \2197';opacity:.7;}
+  .metric-label{font-family:var(--font-mono);font-size:8.5px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;}
+  .metric-val{font-family:var(--font-mono);font-size:16px;font-weight:600;color:var(--text-hi);margin-top:3px;transition:color .3s;}
+  .metric-val.teal{color:var(--teal);}
+  .metric-val.warn{color:var(--amber);}
+  .metric-val.crit{color:var(--red);}
+  .metric-bar{height:3px;background:var(--line);border-radius:2px;margin-top:5px;overflow:hidden;}
+  .metric-bar-fill{height:100%;background:var(--teal);border-radius:2px;transition:width .6s ease,background .3s;}
+  .metric-bar-fill.warn{background:var(--amber);}
+  .metric-bar-fill.crit{background:var(--red);}
+
+  .feed{flex:1;overflow-y:auto;padding:8px 12px;display:flex;flex-direction:column;gap:0;}
+  .feed-item{
+    display:flex;gap:8px;padding:7px 3px;
+    border-bottom:1px dashed var(--line-soft);
+    font-size:11px;animation:feedIn .35s forwards;opacity:0;
+  }
+  @keyframes feedIn{from{opacity:0;transform:translateY(-3px);}to{opacity:1;transform:translateY(0);}}
+  .feed-time{font-family:var(--font-mono);font-size:9.5px;color:var(--text-dim);flex-shrink:0;padding-top:1px;min-width:50px;}
+  .feed-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0;margin-top:3px;}
+  .feed-dot.ok{background:var(--teal);}
+  .feed-dot.warn{background:var(--amber);}
+  .feed-dot.crit{background:var(--red);}
+  .feed-text{color:var(--text-mid);line-height:1.4;word-break:break-word;font-size:11px;}
+  .feed-text b{color:var(--text-hi);font-weight:500;}
+  .feed-text .tag{font-family:var(--font-mono);color:var(--text-dim);}
+
+  /* offline toast */
+  .api-toast{
+    display:none;position:fixed;bottom:22px;left:50%;transform:translateX(-50%);
+    background:var(--red-glow);border:1px solid rgba(255,84,112,0.4);
+    color:var(--red);font-family:var(--font-mono);font-size:11px;
+    padding:9px 16px;border-radius:9px;z-index:999;backdrop-filter:blur(8px);
+    animation:slideUp .3s ease;
+  }
+  .api-toast.show{display:block;}
+  @keyframes slideUp{from{opacity:0;transform:translateX(-50%) translateY(8px);}to{opacity:1;transform:translateX(-50%) translateY(0);}}
+
+  @media(max-width:900px){
+    .app{grid-template-columns:1fr;}
+    .sidebar,.pulse{display:none;}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ── SIDEBAR ── -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none">
+          <path d="M12 2L4 5V11C4 16.5 7.4 21.2 12 22C16.6 21.2 20 16.5 20 11V5L12 2Z" stroke="#03211D" stroke-width="1.8" stroke-linejoin="round"/>
+          <path d="M9 11.5L11 13.5L15 9" stroke="#03211D" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div>
+        <div class="brand-name">CyberSentinel</div>
+        <div class="brand-sub">local · watch</div>
+      </div>
+    </div>
+
+    <button class="new-session" onclick="newSession()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      New inquiry
+    </button>
+
+    <div class="section-label">Monitors</div>
+    <div class="monitor-list">
+      <div class="monitor-row" onclick="sendQuick('list open ports')">
+        <span class="dot on" id="dot-ports"></span>
+        <span class="monitor-name">Ports</span>
+        <span class="monitor-val" id="mv-ports">—</span>
+      </div>
+      <div class="monitor-row" onclick="sendQuick('what processes are running?')">
+        <span class="dot on"></span>
+        <span class="monitor-name">Processes</span>
+        <span class="monitor-val" id="mv-proc">—</span>
+      </div>
+      <div class="monitor-row" onclick="sendQuick('what is talking to the internet?')">
+        <span class="dot on"></span>
+        <span class="monitor-name">Network / DNS</span>
+        <span class="monitor-val">tracking</span>
+      </div>
+      <div class="monitor-row" onclick="sendQuick('any USB activity?')">
+        <span class="dot on"></span>
+        <span class="monitor-name">USB</span>
+        <span class="monitor-val">watching</span>
+      </div>
+      <div class="monitor-row" onclick="sendQuick('any failed logins?')">
+        <span class="dot on" id="dot-logins"></span>
+        <span class="monitor-name">Logins</span>
+        <span class="monitor-val" id="mv-logins">—</span>
+      </div>
+      <div class="monitor-row" onclick="sendQuick('what did I download?')">
+        <span class="dot on"></span>
+        <span class="monitor-name">Downloads</span>
+        <span class="monitor-val" id="mv-downloads">idle</span>
+      </div>
+      <div class="monitor-row" onclick="sendQuick('show startup entries')">
+        <span class="dot on"></span>
+        <span class="monitor-name">Startup / Services</span>
+        <span class="monitor-val">baseline</span>
+      </div>
+    </div>
+
+    <div class="section-label">Chat history</div>
+    <div class="history-list" id="historyList">
+      <div class="history-item" style="color:var(--text-dim);font-family:var(--font-mono);font-size:10.5px;cursor:default;">No chats yet</div>
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="status-pill" id="daemonPill"><span class="pulse-dot"></span>DAEMON ACTIVE</div>
+    </div>
+  </aside>
+
+  <!-- ── MAIN CHAT ── -->
+  <main class="main">
+    <div class="topbar">
+      <div>
+        <div class="topbar-title">CyberSentinel</div>
+        <div class="topbar-sub" id="hostline">DESKTOP-SID · Windows 11 · connecting…</div>
+      </div>
+      <div class="threat-level low" id="threatBadge"
+           onclick="sendQuick('show me all threats and alerts')">
+        <span class="bar"></span><span id="threatText">THREAT LEVEL: LOW</span>
+        <div class="threat-tooltip" id="threatTooltip">
+          <div class="threat-tooltip-title">Active Alerts (24h)</div>
+          <div id="threatTooltipBody">
+            <div class="threat-tooltip-empty">No alerts — system is clean.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="chat-scroll" id="chatScroll"></div>
+
+    <div class="input-zone">
+      <div class="command-palette" id="cmdPalette"></div>
+      <div class="input-wrap">
+        <span class="prompt-glyph">&gt;</span>
+        <textarea id="inputBox" rows="1"
+          placeholder="Ask about ports, processes, network, logins…"
+          onkeydown="handleKey(event)" oninput="handleInput(this)"
+          onfocus="handleFocus()" onblur="handleBlur()"></textarea>
+        <button class="send-btn" id="sendBtn" onclick="sendMsg()" title="Send">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
+          </svg>
+        </button>
+      </div>
+      <div class="input-foot" id="inputFoot">Answers come only from data collected on this machine — never invented. <span class="foot-hint">\u2191\u2193 to browse suggestions &middot; Enter to run &middot; Esc to dismiss</span></div>
+    </div>
+  </main>
+
+  <!-- ── PULSE PANEL ── -->
+  <aside class="pulse">
+    <div class="pulse-head">
+      <div class="pulse-title"><span class="live-dot"></span>Live pulse</div>
+      <div class="pulse-sub">raw event stream · all monitors</div>
+    </div>
+
+    <div class="metrics">
+      <div class="metric">
+        <div class="metric-label">CPU</div>
+        <div class="metric-val teal" id="cpuVal">—</div>
+        <div class="metric-bar"><div class="metric-bar-fill" id="cpuBar" style="width:0%"></div></div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Memory</div>
+        <div class="metric-val teal" id="memVal">—</div>
+        <div class="metric-bar"><div class="metric-bar-fill" id="memBar" style="width:0%"></div></div>
+      </div>
+      <div class="metric click" title="Click to list open ports" onclick="sendQuick('list open ports')">
+        <div class="metric-label">Open ports</div>
+        <div class="metric-val" id="portsMetric">—</div>
+      </div>
+      <div class="metric click" title="Click to see alerts" onclick="sendQuick('show me all threats and alerts')">
+        <div class="metric-label">Alerts (24h)</div>
+        <div class="metric-val" id="alertsMetric">—</div>
+      </div>
+    </div>
+
+    <div class="feed" id="feed">
+      <div style="color:var(--text-dim);font-family:var(--font-mono);font-size:10.5px;padding:12px 3px;">Connecting to daemon…</div>
+    </div>
+  </aside>
+</div>
+
+<div class="api-toast" id="apiToast">⚠ Cannot reach CyberSentinel API — is the server running?</div>
+
+<script>
+/* ── config ── */
+const API = '';
+const ME = 'S';
+const HISTORY_KEY = 'cybersentinel_sessions';
+const MAX_SESSIONS = 30;
+
+/* ── state ── */
+let busy = false;
+let apiOnline = true;
+let feedSeen = new Set();
+let currentSessionId = null;
+let viewingHistory = false;  /* true when viewing a past session (read-only) */
+
+/* ── session storage ── */
+function getSessions(){
+  try{ return JSON.parse(localStorage.getItem(HISTORY_KEY)||'[]'); }catch{ return []; }
+}
+function saveSessions(sessions){
+  /* keep only the most recent MAX_SESSIONS */
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(sessions.slice(0,MAX_SESSIONS)));
+}
+function createSession(){
+  currentSessionId = Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,6);
+  viewingHistory = false;
+  return currentSessionId;
+}
+function addToSession(question, answer, source){
+  if(!currentSessionId) createSession();
+  const sessions = getSessions();
+  let session = sessions.find(s=>s.id===currentSessionId);
+  if(!session){
+    session = { id:currentSessionId, created:new Date().toISOString(), messages:[] };
+    sessions.unshift(session);
+  }
+  session.messages.push({
+    question, answer, source,
+    timestamp: new Date().toISOString()
+  });
+  session.updated = new Date().toISOString();
+  saveSessions(sessions);
+  renderHistorySidebar();
+}
+
+/* ── DOM ── */
+const chatScroll = document.getElementById('chatScroll');
+const inputBox   = document.getElementById('inputBox');
+const sendBtn    = document.getElementById('sendBtn');
+const feedEl     = document.getElementById('feed');
+const daemonPill = document.getElementById('daemonPill');
+const apiToast   = document.getElementById('apiToast');
+const threatBadge= document.getElementById('threatBadge');
+const threatText = document.getElementById('threatText');
+const hostlineEl = document.getElementById('hostline');
+const historyList= document.getElementById('historyList');
+const cmdPalette = document.getElementById('cmdPalette');
+const inputFoot  = document.getElementById('inputFoot');
+
+/* ── helpers ── */
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function now(){ return new Date().toLocaleTimeString('en-US',{hour12:false}); }
+function autoGrow(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,130)+'px'; }
+
+/* ── command palette (request: "make it understand without exact commands,
+   and suggest commands for the query" — a terminal-tab-completion-style
+   dropdown of matching example queries, powered by /api/suggest) ── */
+let paletteEntries = [];
+let paletteIndex = -1;
+let paletteFetchTimer = null;
+
+function renderPalette(){
+  if(!paletteEntries.length){ closePalette(); return; }
+  cmdPalette.innerHTML = paletteEntries.map((e,i)=>
+    `<div class="cmd-row${i===paletteIndex?' active':''}" data-i="${i}" onmousedown="event.preventDefault();acceptPaletteItem(${i})">`
+    +`<span class="cmd-row-icon">${esc(e.category)}</span>`
+    +`<div class="cmd-row-body"><div class="cmd-row-text">${esc(e.text)}</div><div class="cmd-row-desc">${esc(e.desc)}</div></div>`
+    +`<span class="cmd-row-enter">\u21B5 run</span>`
+    +`</div>`
+  ).join('');
+  cmdPalette.classList.add('show');
+  inputFoot.classList.add('palette-open');
+}
+
+function closePalette(){
+  paletteEntries=[]; paletteIndex=-1;
+  cmdPalette.classList.remove('show');
+  cmdPalette.innerHTML='';
+  inputFoot.classList.remove('palette-open');
+}
+
+async function fetchSuggestions(q){
+  try{
+    const res = await fetch(`${API}/api/suggest?q=${encodeURIComponent(q)}&limit=6`);
+    if(!res.ok) return;
+    paletteEntries = await res.json();
+    paletteIndex = -1;
+    if(document.activeElement===inputBox) renderPalette();
+  } catch(e){ /* API offline — fail silently, palette is a nicety, not required to chat */ }
+}
+
+function handleInput(el){
+  autoGrow(el);
+  if(viewingHistory || busy) return;
+  clearTimeout(paletteFetchTimer);
+  paletteFetchTimer = setTimeout(()=>fetchSuggestions(el.value.trim()), 120);
+}
+
+function handleFocus(){
+  if(viewingHistory || busy) return;
+  fetchSuggestions(inputBox.value.trim());
+}
+
+function handleBlur(){
+  /* delay so a click/mousedown on a palette row registers before we hide it */
+  setTimeout(closePalette, 150);
+}
+
+function acceptPaletteItem(i){
+  const item = paletteEntries[i];
+  if(!item) return;
+  closePalette();
+  sendQuick(item.text);
+}
+
+function handleKey(e){
+  if(cmdPalette.classList.contains('show') && paletteEntries.length){
+    if(e.key==='ArrowDown'){ e.preventDefault(); paletteIndex=(paletteIndex+1)%paletteEntries.length; renderPalette(); return; }
+    if(e.key==='ArrowUp'){ e.preventDefault(); paletteIndex=(paletteIndex-1+paletteEntries.length)%paletteEntries.length; renderPalette(); return; }
+    if(e.key==='Escape'){ e.preventDefault(); closePalette(); return; }
+    if(e.key==='Tab' && paletteIndex>=0){ e.preventDefault(); inputBox.value=paletteEntries[paletteIndex].text; closePalette(); autoGrow(inputBox); return; }
+    if(e.key==='Enter' && !e.shiftKey && paletteIndex>=0){ e.preventDefault(); acceptPaletteItem(paletteIndex); return; }
+  }
+  if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); closePalette(); sendMsg(); }
+}
+
+function setOnline(on){
+  if(on===apiOnline) return;
+  apiOnline=on;
+  if(!on){
+    apiToast.classList.add('show');
+    daemonPill.className='status-pill offline';
+    daemonPill.innerHTML='<span class="pulse-dot"></span>DAEMON OFFLINE';
+  } else {
+    apiToast.classList.remove('show');
+    daemonPill.className='status-pill';
+    daemonPill.innerHTML='<span class="pulse-dot"></span>DAEMON ACTIVE';
+  }
+}
+
+/* ── text → styled HTML ── */
+function renderAnswer(text){
+  const lines = text.split('\n');
+  let html='', inSection=false;
+  for(const raw of lines){
+    const tr=raw.trim();
+    if(!tr){ if(inSection){html+='</div>'; inSection=false;} continue; }
+    const indent=/^\s{2,}|^\s*[-•]/.test(raw);
+    if(indent){
+      if(!inSection){html+='<div class="data-section">'; inSection=true;}
+      html+=`<div class="data-row">${esc(tr)}</div>`;
+    } else {
+      if(inSection){html+='</div>'; inSection=false;}
+      html+=`<p>${esc(tr)}</p>`;
+    }
+  }
+  if(inSection) html+='</div>';
+  return html;
+}
+
+/* ── chat ── */
+function appendUser(text){
+  const d=document.createElement('div');
+  d.className='msg user';
+  d.innerHTML=`<div class="avatar you">${esc(ME)}</div><div class="bubble-col"><div class="bubble"></div><div class="msg-time">${now()}</div></div>`;
+  d.querySelector('.bubble').textContent=text;
+  chatScroll.appendChild(d);
+  chatScroll.scrollTop=chatScroll.scrollHeight;
+}
+
+function appendTyping(){
+  const d=document.createElement('div');
+  d.className='msg ai'; d.id='typing';
+  d.innerHTML=`<div class="avatar ai">CS</div><div class="bubble-col"><div class="bubble"><div class="typing"><span></span><span></span><span></span></div></div></div>`;
+  chatScroll.appendChild(d); chatScroll.scrollTop=chatScroll.scrollHeight;
+}
+
+function removeTyping(){ const t=document.getElementById('typing'); if(t)t.remove(); }
+
+function appendAI(text, source){
+  removeTyping();
+  const d=document.createElement('div');
+  d.className='msg ai';
+  let extra='';
+
+  if(source==='llm'){
+    extra=`<span class="source-badge llm">LLM</span>`;
+  } else if(source==='error'){
+    extra=`<span class="source-badge err">Error</span>`;
+  } else if(source==='llm_unavailable'){
+    /* JS crashed before because of apostrophe bug — using clean strings here */
+    text="I don't recognize that pattern yet. Try one of these:";
+    extra=`<div class="quick-chips">
+      <div class="qchip" onclick="sendQuick('what are the threats?')">What are the threats?</div>
+      <div class="qchip" onclick="sendQuick('list open ports')">List open ports</div>
+      <div class="qchip" onclick="sendQuick('what processes are running?')">Processes running</div>
+      <div class="qchip" onclick="sendQuick('summarize today')">Summarize today</div>
+      <div class="qchip" onclick="sendQuick('what can you answer?')">What can you answer?</div>
+    </div><span class="source-badge" style="margin-top:6px">offline — set ANTHROPIC_API_KEY for free-form questions</span>`;
+  }
+
+  d.innerHTML=`<div class="avatar ai">CS</div><div class="bubble-col"><div class="bubble">${renderAnswer(text)}${extra}</div><div class="msg-time">${now()}</div></div>`;
+  chatScroll.appendChild(d);
+  chatScroll.scrollTop=chatScroll.scrollHeight;
+}
+
+function appendWelcome(){
+  const d=document.createElement('div');
+  d.className='msg ai';
+  d.innerHTML=`
+    <div class="avatar ai">CS</div>
+    <div class="bubble-col">
+      <div class="bubble">
+        <p>I watch ports, processes, network, USB, logins, and downloads on this machine. Click any monitor in the sidebar or ask me anything — all answers come from real collected data.</p>
+        <div class="quick-chips">
+          <div class="qchip" onclick="sendQuick('what are the threats?')">What are the threats?</div>
+          <div class="qchip" onclick="sendQuick('list open ports')">List open ports</div>
+          <div class="qchip" onclick="sendQuick('anything weird today?')">Anything weird today?</div>
+          <div class="qchip" onclick="sendQuick('what can you answer?')">What can you answer?</div>
+        </div>
+      </div>
+      <div class="msg-time">${now()}</div>
+    </div>`;
+  chatScroll.appendChild(d);
+}
+
+/* ── send ── */
+async function sendMsg(){
+  const text=inputBox.value.trim();
+  if(!text||busy) return;
+  closePalette();
+  /* Defensive fallback: if something programmatically sent a message while
+     still viewing history (e.g. a stray sendQuick call), fully reset into a
+     live session first. In normal use this shouldn't fire — the composer is
+     disabled while viewingHistory is true (see showSessionChat). */
+  if(viewingHistory){
+    chatScroll.innerHTML='';
+    appendWelcome();
+    createSession();
+    inputBox.placeholder='Ask about ports, processes, network, logins\u2026';
+  }
+  busy=true; sendBtn.disabled=true; inputBox.disabled=true;
+  appendUser(text);
+  inputBox.value=''; inputBox.style.height='auto'; inputBox.disabled=false;
+  appendTyping();
+  try{
+    /* Send the last few Q&A turns from THIS session as context, so the LLM
+       path can resolve follow-ups like "what about yesterday?" instead of
+       treating every message as an isolated question. */
+    const recentContext=getSessions().find(s=>s.id===currentSessionId)?.messages.slice(-4) || [];
+    const res=await fetch(`${API}/api/ask`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:text, context:recentContext})});
+    setOnline(true);
+    if(!res.ok){
+      const e=await res.json().catch(()=>({error:'HTTP '+res.status}));
+      appendAI(e.error||'Server error','error');
+    } else {
+      const d=await res.json();
+      const answer = d.answer||'(empty response)';
+      const source = d.source||'offline';
+      appendAI(answer, source);
+      /* Store this Q&A in the current session */
+      addToSession(text, answer, source);
+    }
+  } catch(e){
+    setOnline(false);
+    appendAI('Cannot reach the CyberSentinel API. Make sure it is running: python main.py --mode api','error');
+  } finally{
+    busy=false; sendBtn.disabled=false; inputBox.focus();
+  }
+}
+
+/* quick-send from chips, sidebar rows, metric tiles */
+function sendQuick(q){ if(viewingHistory) newSession(); inputBox.value=q; sendMsg(); }
+
+/* start a new conversation */
+function newSession(){
+  chatScroll.innerHTML='';
+  busy=false;
+  sendBtn.disabled=false;
+  inputBox.value='';
+  inputBox.style.height='auto';
+  inputBox.disabled=false;
+  inputBox.placeholder='Ask about ports, processes, network, logins\u2026';
+  closePalette();
+  createSession();
+  appendWelcome();
+  inputBox.focus();
+  /* un-highlight any active history item */
+  document.querySelectorAll('.history-item').forEach(x=>x.classList.remove('active'));
+}
+
+/* ── /api/status ── */
+async function pollStatus(){
+  try{
+    const res=await fetch(`${API}/api/status`); if(!res.ok) return;
+    setOnline(true);
+    const d=await res.json();
+
+    /* CPU */
+    const cpu=d.cpu_pct!=null?Math.round(d.cpu_pct):null;
+    if(cpu!=null){
+      const v=document.getElementById('cpuVal'), b=document.getElementById('cpuBar');
+      v.textContent=cpu+'%'; b.style.width=cpu+'%';
+      if(cpu>=80){v.className='metric-val crit';b.className='metric-bar-fill crit';}
+      else if(cpu>=50){v.className='metric-val warn';b.className='metric-bar-fill warn';}
+      else{v.className='metric-val teal';b.className='metric-bar-fill';}
+    }
+
+    /* Memory */
+    const mem=d.mem_pct!=null?Math.round(d.mem_pct):null;
+    if(mem!=null){
+      const v=document.getElementById('memVal'), b=document.getElementById('memBar');
+      v.textContent=mem+'%'; b.style.width=mem+'%';
+      if(mem>=85){v.className='metric-val crit';b.className='metric-bar-fill crit';}
+      else if(mem>=65){v.className='metric-val warn';b.className='metric-bar-fill warn';}
+      else{v.className='metric-val teal';b.className='metric-bar-fill';}
+    }
+
+    /* Ports */
+    const ports=d.open_ports!=null?d.open_ports:'—';
+    document.getElementById('portsMetric').textContent=ports;
+    document.getElementById('mv-ports').textContent=ports!=='—'?ports+' open':'—';
+
+    /* Alerts */
+    const al=d.alerts_24h!=null?d.alerts_24h:'—';
+    const alEl=document.getElementById('alertsMetric');
+    alEl.textContent=al;
+    alEl.className='metric-val'+(al>0?' warn':'');
+
+    /* LLM hint */
+    document.getElementById('inputFoot').textContent=d.llm_enabled===false
+      ?'Offline mode — set ANTHROPIC_API_KEY in .env for free-form questions.'
+      :'Answers come only from data collected on this machine — never invented.';
+
+    /* Host line */
+    hostlineEl.textContent='DESKTOP-SID \u00b7 Windows 11 \u00b7 '+now();
+
+    /* Threat level */
+    updateThreatLevel(typeof al==='number'?al:0);
+
+  } catch(e){ setOnline(false); }
+}
+
+async function updateThreatLevel(total){
+  const tb=threatBadge;
+  const tooltipBody=document.getElementById('threatTooltipBody');
+  tb.className='threat-level';
+  if(total===0){
+    tb.classList.add('low');threatText.textContent='THREAT LEVEL: LOW';
+    tooltipBody.innerHTML='<div class="threat-tooltip-empty">No alerts \u2014 system is clean.</div>';
+    return;
+  }
+  try{
+    const res=await fetch(`${API}/api/alerts?limit=50`); if(!res.ok) throw 0;
+    const alerts=await res.json();
+    const since=new Date(Date.now()-86400000).toISOString();
+    const rec=alerts.filter(a=>a.timestamp>=since);
+    const hi=rec.filter(a=>(a.severity||'').toUpperCase()==='HIGH').length;
+    const med=rec.filter(a=>(a.severity||'').toUpperCase()==='MEDIUM').length;
+    if(hi>0){tb.classList.add('high');threatText.textContent='THREAT LEVEL: HIGH \u2014 '+hi+' HIGH alert(s)';}
+    else if(med>=3){tb.classList.add('med');threatText.textContent='THREAT LEVEL: MEDIUM \u2014 '+med+' alerts';}
+    else{tb.classList.add('low');threatText.textContent=total>0?'THREAT LEVEL: LOW \u2014 '+total+' minor alert(s)':'THREAT LEVEL: LOW';}
+
+    /* Populate tooltip with top alert reasons */
+    if(rec.length===0){
+      tooltipBody.innerHTML='<div class="threat-tooltip-empty">No alerts \u2014 system is clean.</div>';
+    } else {
+      const shown=rec.slice(0,6);
+      let html='';
+      shown.forEach(a=>{
+        const sev=(a.severity||'LOW').toUpperCase();
+        const sevClass=sev==='HIGH'?'high':sev==='MEDIUM'?'med':'low';
+        const cat=esc(a.category||'alert');
+        const msg=esc(a.message||'No details');
+        const occ=(a.occurrence_count||1)>1?` <span class="threat-tooltip-occ">\u00d7${a.occurrence_count}</span>`:'';
+        const reasonHtml=a.reason?`<div class="threat-tooltip-why"><b>Why:</b> ${esc(a.reason)}</div>`:'';
+        html+=`<div class="threat-tooltip-row">`
+          +`<span class="threat-tooltip-sev ${sevClass}">${sev}</span>`
+          +`<div><div class="threat-tooltip-msg">${msg}${occ}</div>`
+          +reasonHtml
+          +`<div class="threat-tooltip-cat">${cat}</div></div></div>`;
+      });
+      if(rec.length>6) html+=`<div class="threat-tooltip-row" style="color:var(--text-dim);font-style:italic;">+${rec.length-6} more alert(s)\u2026</div>`;
+      tooltipBody.innerHTML=html;
+    }
+  } catch{
+    if(total>10){tb.classList.add('high');threatText.textContent='THREAT LEVEL: HIGH';}
+    else if(total>3){tb.classList.add('med');threatText.textContent='THREAT LEVEL: MEDIUM';}
+    else{tb.classList.add('low');threatText.textContent='THREAT LEVEL: LOW';}
+    tooltipBody.innerHTML='<div class="threat-tooltip-empty">Could not load alert details.</div>';
+  }
+}
+
+/* ── /api/feed ── */
+function levelOf(table,row){
+  if(table==='alerts'){const s=(row.severity||'').toUpperCase();return s==='HIGH'?'crit':s==='MEDIUM'?'warn':'ok';}
+  if(table==='login_events'&&row.success===0) return 'warn';
+  return 'ok';
+}
+function textOf(table,row){
+  switch(table){
+    case 'alerts': return `<b>${esc(row.category||'Alert')}</b> \u2014 ${esc(row.message||'')} <span class="tag">[${esc(row.severity||'')}]</span>`;
+    case 'process_snapshots': return `Process <b>${esc(row.name||String(row.pid))}</b> <span class="tag">${esc(row.event||'')}</span>`;
+    case 'port_snapshots': return `Port <b>${row.port}</b> ${esc(row.event||'')} by <b>${esc(row.process_name||String(row.pid||'?'))}</b>`;
+    case 'login_events': return row.success===0?`Failed login <b>${esc(row.username||'?')}</b> <span class="tag">${esc(row.source_ip||'local')}</span>`:`Login <b>${esc(row.username||'?')}</b> ok`;
+    case 'usb_events': return `USB ${esc(row.action||'')} \u2014 <b>${esc(row.device_name||'device')}</b>`;
+    case 'downloads': return `Download <b>${esc(row.filename||row.url||'?')}</b> via <span class="tag">${esc(row.browser||'?')}</span>`;
+    case 'dns_queries': return `DNS <span class="tag">${esc(row.domain||'?')}</span> by <b>${esc(row.process_name||String(row.pid||'?'))}</b>`;
+    case 'filesystem_events': return `File ${esc(row.event_type||'')} \u2014 ${esc(row.path||'?')}`;
+    case 'system_health': return `Health \u00b7 CPU <b>${row.cpu_pct!=null?Math.round(row.cpu_pct)+'%':'?'}</b> \u00b7 Mem <b>${row.mem_pct!=null?Math.round(row.mem_pct)+'%':'?'}</b>`;
+    default: return `<b>${esc(table)}</b> event`;
+  }
+}
+function fmtTime(ts){ try{return new Date(ts).toLocaleTimeString('en-US',{hour12:false});}catch{return now();} }
+
+async function pollFeed(){
+  try{
+    const res=await fetch(`${API}/api/feed?limit=40`); if(!res.ok) return;
+    const events=await res.json();
+    const newItems=events.filter(e=>{const k=e.table+'_'+e.id;if(feedSeen.has(k))return false;feedSeen.add(k);return true;});
+    if(!newItems.length) return;
+    const ph=feedEl.querySelector('div:not(.feed-item)'); if(ph) ph.remove();
+    newItems.forEach(row=>{
+      const lv=levelOf(row.table,row);
+      const item=document.createElement('div'); item.className='feed-item';
+      item.innerHTML=`<span class="feed-time">${fmtTime(row.timestamp)}</span><span class="feed-dot ${lv}"></span><span class="feed-text">${textOf(row.table,row)}</span>`;
+      feedEl.prepend(item);
+    });
+    while(feedEl.children.length>60) feedEl.removeChild(feedEl.lastChild);
+  } catch(e){}
+}
+
+/* ── chat history (localStorage sessions) ── */
+function fmtDate(iso){
+  try{
+    const d=new Date(iso);
+    const today=new Date();
+    const yesterday=new Date(); yesterday.setDate(today.getDate()-1);
+    const dateStr=d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    const timeStr=d.toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit'});
+    if(d.toDateString()===today.toDateString()) return 'Today '+timeStr;
+    if(d.toDateString()===yesterday.toDateString()) return 'Yesterday '+timeStr;
+    return dateStr+' '+timeStr;
+  }catch{ return ''; }
+}
+
+function renderHistorySidebar(){
+  const sessions=getSessions();
+  historyList.innerHTML='';
+  if(!sessions.length){
+    historyList.innerHTML='<div class="history-item" style="color:var(--text-dim);font-family:var(--font-mono);font-size:10.5px;cursor:default;">No chats yet</div>';
+    return;
+  }
+  sessions.forEach(session=>{
+    if(!session.messages||!session.messages.length) return;
+    const firstQ=session.messages[0].question||'Untitled';
+    const msgCount=session.messages.length;
+    const dateStr=fmtDate(session.updated||session.created);
+    const d=document.createElement('div');
+    d.className='history-item'+(session.id===currentSessionId&&viewingHistory?' active':'');
+    d.innerHTML=`<div class="history-item-q">${esc(firstQ.length>38?firstQ.slice(0,38)+'\u2026':firstQ)}</div>`
+      +`<div class="history-item-meta"><span>\ud83d\udcac ${msgCount}</span><span>${esc(dateStr)}</span></div>`;
+    d.title=firstQ+'\n'+dateStr;
+    d.onclick=()=>{
+      document.querySelectorAll('.history-item').forEach(x=>x.classList.remove('active'));
+      d.classList.add('active');
+      showSessionChat(session);
+    };
+    historyList.appendChild(d);
+  });
+}
+
+function showSessionChat(session){
+  viewingHistory=true;
+  chatScroll.innerHTML='';
+
+  /* Render each Q&A in the session with timestamps */
+  session.messages.forEach(msg=>{
+    /* User question */
+    const uDiv=document.createElement('div');
+    uDiv.className='msg user';
+    uDiv.innerHTML=`<div class="avatar you">${esc(ME)}</div><div class="bubble-col"><div class="bubble"></div><div class="msg-time">${esc(fmtDate(msg.timestamp))}</div></div>`;
+    uDiv.querySelector('.bubble').textContent=msg.question||'(no question)';
+    chatScroll.appendChild(uDiv);
+
+    /* AI answer */
+    const aDiv=document.createElement('div');
+    aDiv.className='msg ai';
+    let extra='';
+    if(msg.source==='llm') extra='<span class="source-badge llm">LLM</span>';
+    else if(msg.source==='error') extra='<span class="source-badge err">Error</span>';
+    aDiv.innerHTML=`<div class="avatar ai">CS</div><div class="bubble-col"><div class="bubble">${renderAnswer(msg.answer||'(no answer)')}${extra}</div><div class="msg-time">${esc(fmtDate(msg.timestamp))}</div></div>`;
+    chatScroll.appendChild(aDiv);
+  });
+
+  /* Hint footer + explicit "resume" action */
+  const hint=document.createElement('div');
+  hint.className='msg ai';
+  hint.innerHTML=`<div class="avatar ai">CS</div><div class="bubble-col"><div class="bubble" style="border:1px dashed var(--line);background:transparent;">`
+    +`<p style="color:var(--text-dim);font-size:12px;">\u2191 Viewing a past chat from <b>${esc(fmtDate(session.created))}</b>. This is read-only.</p>`
+    +`<button class="resume-btn" onclick="newSession()">Start a new inquiry</button>`
+    +`</div></div>`;
+  chatScroll.appendChild(hint);
+  chatScroll.scrollTop=0;
+
+  /* Lock the composer — this is what makes "history, but no continuing"
+     an actual guarantee instead of a silent auto-reset the user might not
+     notice: you cannot type into a past conversation, full stop. */
+  inputBox.disabled=true;
+  inputBox.value='';
+  inputBox.placeholder='Viewing a past chat \u2014 click "New inquiry" to ask a question';
+  sendBtn.disabled=true;
+}
+
+/* ── sidebar monitor values ── */
+async function pollMonitors(){
+  try{
+    const res=await fetch(`${API}/api/feed?limit=200`); if(!res.ok) return;
+    const rows=await res.json();
+    const failedLogins=rows.filter(r=>r.table==='login_events'&&r.success===0);
+    const dotL=document.getElementById('dot-logins'), valL=document.getElementById('mv-logins');
+    if(failedLogins.length){dotL.className='dot warn';valL.textContent=failedLogins.length+' failed';}
+    else{dotL.className='dot on';valL.textContent='clean';}
+    const downloads=rows.filter(r=>r.table==='downloads');
+    document.getElementById('mv-downloads').textContent=downloads.length?downloads.length+' found':'idle';
+    const procs=new Set(rows.filter(r=>r.table==='process_snapshots').map(r=>r.pid));
+    if(procs.size) document.getElementById('mv-proc').textContent=procs.size+'+ seen';
+  } catch(e){}
+}
+
+/* ── hostline clock ── */
+setInterval(()=>{ hostlineEl.textContent='DESKTOP-SID \u00b7 Windows 11 \u00b7 '+now(); },1000);
+
+/* ── boot ── */
+createSession();
+appendWelcome();
+renderHistorySidebar();
+
+pollStatus(); setInterval(pollStatus, 5000);
+setTimeout(()=>{ pollFeed(); setInterval(pollFeed,3000); },400);
+setTimeout(()=>{ pollMonitors(); setInterval(pollMonitors,15000); },800);
+</script>
+</body>
+</html>
