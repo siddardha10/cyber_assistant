@@ -677,7 +677,7 @@ def _help(match, question):
         "  DNS - 'dns queries', 'domain lookups'\n"
         "  Health - 'system health', 'disk space', 'how is my system?'\n"
         "  Summary - 'anything weird today?', 'daily report', 'brief me'\n\n"
-        "Set ANTHROPIC_API_KEY in .env to unlock free-form natural language questions."
+        "Set NVIDIA_API_KEY in .env to unlock free-form natural language questions."
     )
 
 

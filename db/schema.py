@@ -211,6 +211,23 @@ SCHEMA_STATEMENTS = [
     );
     """,
 
+    # --- command execution log ---
+    """
+    CREATE TABLE IF NOT EXISTS command_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        natural_input TEXT,
+        translated_command TEXT,
+        template_id TEXT,
+        tier TEXT,
+        confirmed INTEGER DEFAULT 0,
+        stdout TEXT,
+        stderr TEXT,
+        exit_code INTEGER,
+        success INTEGER
+    );
+    """,
+
     # --- query audit log ---
     """
     CREATE TABLE IF NOT EXISTS query_logs (
@@ -243,6 +260,7 @@ INDEX_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS idx_alerts_ts ON alerts(timestamp);",
     "CREATE INDEX IF NOT EXISTS idx_alerts_dedup ON alerts(dedup_key);",
     "CREATE INDEX IF NOT EXISTS idx_health_ts ON system_health(timestamp);",
+    "CREATE INDEX IF NOT EXISTS idx_cmdlog_ts ON command_logs(timestamp);",
 ]
 
 # Columns added after the original schema shipped. Applied via
@@ -263,7 +281,8 @@ ALLOWED_TABLES = {
     "process_snapshots", "port_snapshots", "usb_events", "login_events",
     "downloads", "installed_software", "startup_entries", "services",
     "scheduled_tasks", "filesystem_events", "network_events", "dns_queries",
-    "alerts", "system_health", "process_baselines",
+    "alerts", "system_health", "process_baselines", "command_logs",
+    "query_logs",
 }
 
 # Human-readable schema text handed to the LLM system prompt verbatim.
@@ -280,7 +299,9 @@ scheduled_tasks(id, timestamp, name, path, next_run, action)
 filesystem_events(id, timestamp, path, event_type, watched_dir, size_bytes)
 network_events(id, timestamp, src_ip, dst_ip, protocol, size, pid, event_type)
 dns_queries(id, timestamp, domain, pid, process_name)
-alerts(id, timestamp, category, severity, message, source_table, source_id, acknowledged)
+alerts(id, timestamp, category, severity, message, reason, source_table, source_id, acknowledged, dedup_key, occurrence_count, last_seen)
 system_health(id, timestamp, cpu_pct, mem_pct, disk_pct)
 process_baselines(process_name, avg_cpu_pct, sample_count, updated_at)
+command_logs(id, timestamp, natural_input, translated_command, template_id, tier, confirmed, stdout, stderr, exit_code, success)
+query_logs(id, timestamp, question, sql_generated, live_check, answer, source)
 """.strip()

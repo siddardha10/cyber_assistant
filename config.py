@@ -53,11 +53,12 @@ FS_WATCH_PATHS = [
 ]
 
 # ---------------------------------------------------------------------------
-# LLM
+# LLM (NVIDIA API — OpenAI-compatible endpoint)
 # ---------------------------------------------------------------------------
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-LLM_MODEL = os.getenv("CS_LLM_MODEL", "claude-sonnet-4-6")
-LLM_ENABLED = bool(ANTHROPIC_API_KEY)
+NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
+NVIDIA_BASE_URL = os.getenv("CS_NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
+LLM_MODEL = os.getenv("CS_LLM_MODEL", "minimaxai/minimax-m3")
+LLM_ENABLED = bool(NVIDIA_API_KEY)
 
 # ---------------------------------------------------------------------------
 # Alert thresholds

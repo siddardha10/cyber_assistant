@@ -1,16 +1,17 @@
 """
 api/server.py
 
-Thin Flask layer over the exact same query engine the CLI uses — nothing
-about the backend changes to support the web UI, per the original plan.
+v2 — Extended with intent-aware responses and command execution endpoint.
 
 Endpoints:
-  GET  /                serves ui/index.html (so the UI avoids CORS issues)
-  POST /api/ask         {"question": "..."} -> {"answer": ..., "source": ...}
-  GET  /api/status      monitor + live health snapshot (for the sidebar/metrics)
-  GET  /api/feed        recent raw events across all tables (for the pulse feed)
+  GET  /                serves ui/index.html
+  POST /api/ask         {question, context} -> {answer, source, intent, command_data}
+  POST /api/execute     {command_data, confirmed} -> {executed, stdout, stderr, ...}
+  GET  /api/suggest     command-palette suggestions (now includes ⚡ Run items)
+  GET  /api/status      monitor + live health snapshot
+  GET  /api/feed        recent raw events across all tables
   GET  /api/alerts      recent alerts
-  GET  /api/history     recent query_logs rows (for the session history sidebar)
+  GET  /api/history     recent query_logs rows
 """
 
 from pathlib import Path
@@ -56,9 +57,7 @@ def api_ask():
     if not question:
         return jsonify({"error": "Missing 'question'"}), 400
     # `context` — recent {"question","answer"} turns from the current chat
-    # session, sent by the UI so follow-up questions ("what about
-    # yesterday?") are understood by the LLM path instead of treated as
-    # an isolated, context-free query.
+    # session, sent by the UI so follow-up questions are understood.
     context = body.get("context")
     if context is not None and not isinstance(context, list):
         context = None
@@ -66,13 +65,65 @@ def api_ask():
     return jsonify(result)
 
 
+@app.route("/api/execute", methods=["POST"])
+def api_execute():
+    """
+    Execute a previously-translated command after user confirmation.
+    Used for DESTRUCTIVE commands that require explicit confirmation.
+
+    Expects: {"command_data": {...}, "confirmed": true}
+    The command_data must include template_id, tier, params, command_parts, display_command.
+    """
+    body = request.get_json(silent=True) or {}
+    command_data = body.get("command_data")
+    confirmed = body.get("confirmed", False)
+
+    if not command_data:
+        return jsonify({"error": "Missing 'command_data'"}), 400
+
+    template_id = command_data.get("template_id")
+    tier = command_data.get("tier")
+    params = command_data.get("params", {})
+    command_parts = command_data.get("command_parts")
+    display_command = command_data.get("display_command")
+    natural_input = command_data.get("natural_input", "")
+
+    if not template_id or not command_parts:
+        return jsonify({"error": "Invalid command_data — missing template_id or command_parts"}), 400
+
+    if tier == "DESTRUCTIVE" and not confirmed:
+        return jsonify({"error": "DESTRUCTIVE commands require confirmed=true"}), 400
+
+    # Re-validate the template exists and params are clean
+    from commands.templates import get_template, build_command
+    template = get_template(template_id)
+    if template is None:
+        return jsonify({"error": f"Unknown template: {template_id}"}), 400
+
+    try:
+        validated_parts = build_command(template_id, params)
+    except ValueError as e:
+        return jsonify({"error": f"Parameter validation failed: {e}"}), 400
+
+    # Execute
+    from commands.executor import execute
+    result = execute(
+        template_id=template_id,
+        tier=tier,
+        params=params,
+        command_parts=validated_parts,
+        display_command=display_command,
+        natural_input=natural_input,
+        confirmed=confirmed,
+    )
+    return jsonify(result)
+
+
 @app.route("/api/suggest", methods=["GET"])
 def api_suggest():
     """
     Command-palette suggestions: as the user types, return matching example
-    queries + descriptions so they can pick one instead of needing to know
-    exact phrasing — the terminal-with-tab-completion behavior, but for
-    natural language.
+    queries + descriptions. v2 adds system command suggestions with type="command".
     """
     q = request.args.get("q", "")
     limit = int(request.args.get("limit", 6))
@@ -85,9 +136,6 @@ def api_status():
     health = db.get_recent("system_health", limit=1)
 
     # ── Open ports: count ports whose most recent event is 'opened' ──────────
-    # We use a subquery to find the latest event per (port, pid) pair and then
-    # count only those that are still 'opened'.  This is correct even after
-    # ports are closed, unlike a simple COUNT of all 'opened' rows.
     open_ports_rows = db.run_readonly_query(
         """
         SELECT COUNT(*) AS c FROM (

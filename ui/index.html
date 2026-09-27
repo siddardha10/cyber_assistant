@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v2.1 session-history -->
+<!-- v3.0 command-center -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -24,6 +24,8 @@
     --teal-glow:rgba(45,212,191,0.15);
     --amber:#F5A623;
     --amber-glow:rgba(245,166,35,0.15);
+    --orange:#FF8C42;
+    --orange-glow:rgba(255,140,66,0.15);
     --red:#FF5470;
     --red-glow:rgba(255,84,112,0.15);
     --font-display:'Space Grotesk', sans-serif;
@@ -245,6 +247,66 @@
   }
   .source-badge.llm{color:var(--teal);border-color:rgba(45,212,191,0.2);background:var(--teal-glow);}
   .source-badge.err{color:var(--red);border-color:rgba(255,84,112,0.2);background:var(--red-glow);}
+  .source-badge.cmd{color:var(--orange);border-color:rgba(255,140,66,0.2);background:var(--orange-glow);}
+  .source-badge.out-of-scope{color:var(--text-dim);border-color:var(--line);background:var(--bg-panel-raised);}
+
+  /* ── command response styling ── */
+  .cmd-block{
+    background:#0A0E13;border:1px solid var(--line);border-radius:8px;
+    padding:10px 14px;margin:8px 0;
+    font-family:var(--font-mono);font-size:12px;color:var(--teal);
+    overflow-x:auto;white-space:pre-wrap;word-break:break-all;
+  }
+  .cmd-output{
+    background:#070A0E;border:1px solid var(--line-soft);border-radius:8px;
+    padding:10px 14px;margin:8px 0;
+    font-family:var(--font-mono);font-size:11px;color:var(--text-mid);
+    max-height:300px;overflow-y:auto;overflow-x:auto;
+    white-space:pre-wrap;word-break:break-word;line-height:1.45;
+  }
+  .cmd-tier{
+    display:inline-flex;align-items:center;gap:4px;
+    font-family:var(--font-mono);font-size:9px;font-weight:600;
+    padding:2px 7px;border-radius:4px;margin-right:6px;
+  }
+  .cmd-tier.safe{color:var(--teal);background:var(--teal-glow);}
+  .cmd-tier.destructive{color:var(--red);background:var(--red-glow);}
+
+  /* ── destructive confirmation panel ── */
+  .confirm-panel{
+    background:var(--bg-panel-raised);border:2px solid rgba(255,84,112,0.4);
+    border-radius:12px;padding:16px 18px;margin:10px 0;
+    animation:confirmIn .25s ease;
+  }
+  @keyframes confirmIn{from{opacity:0;transform:scale(0.96);}to{opacity:1;transform:scale(1);}}
+  .confirm-panel-title{
+    font-family:var(--font-display);font-weight:600;font-size:13px;
+    color:var(--red);display:flex;align-items:center;gap:6px;margin-bottom:8px;
+  }
+  .confirm-panel-cmd{
+    background:#0A0E13;border:1px solid rgba(255,84,112,0.3);border-radius:8px;
+    padding:10px 14px;margin:8px 0;
+    font-family:var(--font-mono);font-size:12px;color:var(--red);
+    white-space:pre-wrap;word-break:break-all;
+  }
+  .confirm-panel-desc{
+    font-size:12px;color:var(--text-mid);margin:6px 0 12px;
+  }
+  .confirm-actions{display:flex;gap:10px;}
+  .confirm-btn{
+    padding:8px 18px;border-radius:8px;border:none;
+    font-family:var(--font-body);font-size:12.5px;font-weight:600;
+    cursor:pointer;transition:all .15s;
+  }
+  .confirm-btn.execute{
+    background:var(--red);color:#fff;
+  }
+  .confirm-btn.execute:hover{background:#FF6B80;transform:scale(1.02);}
+  .confirm-btn.execute:active{transform:scale(0.97);}
+  .confirm-btn.cancel{
+    background:var(--bg-panel);border:1px solid var(--line);color:var(--text-mid);
+  }
+  .confirm-btn.cancel:hover{border-color:var(--text-dim);color:var(--text-hi);}
 
   /* inline quick-chips inside bubbles */
   .quick-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;}
@@ -495,7 +557,7 @@
       <div class="input-wrap">
         <span class="prompt-glyph">&gt;</span>
         <textarea id="inputBox" rows="1"
-          placeholder="Ask about ports, processes, network, logins…"
+          placeholder="Ask a question or describe a command to run…"
           onkeydown="handleKey(event)" oninput="handleInput(this)"
           onfocus="handleFocus()" onblur="handleBlur()"></textarea>
         <button class="send-btn" id="sendBtn" onclick="sendMsg()" title="Send">
@@ -616,13 +678,16 @@ let paletteFetchTimer = null;
 
 function renderPalette(){
   if(!paletteEntries.length){ closePalette(); return; }
-  cmdPalette.innerHTML = paletteEntries.map((e,i)=>
-    `<div class="cmd-row${i===paletteIndex?' active':''}" data-i="${i}" onmousedown="event.preventDefault();acceptPaletteItem(${i})">`
-    +`<span class="cmd-row-icon">${esc(e.category)}</span>`
+  cmdPalette.innerHTML = paletteEntries.map((e,i)=>{
+    const isCmd = e.type==='command';
+    const iconStyle = isCmd ? 'color:var(--orange);border-color:rgba(255,140,66,0.3)' : '';
+    const actionLabel = isCmd ? '\u21B5 run' : '\u21B5 ask';
+    return `<div class="cmd-row${i===paletteIndex?' active':''}" data-i="${i}" onmousedown="event.preventDefault();acceptPaletteItem(${i})">`
+    +`<span class="cmd-row-icon" style="${iconStyle}">${esc(e.category)}</span>`
     +`<div class="cmd-row-body"><div class="cmd-row-text">${esc(e.text)}</div><div class="cmd-row-desc">${esc(e.desc)}</div></div>`
-    +`<span class="cmd-row-enter">\u21B5 run</span>`
-    +`</div>`
-  ).join('');
+    +`<span class="cmd-row-enter">${actionLabel}</span>`
+    +`</div>`;
+  }).join('');
   cmdPalette.classList.add('show');
   inputFoot.classList.add('palette-open');
 }
@@ -732,31 +797,114 @@ function appendTyping(){
 
 function removeTyping(){ const t=document.getElementById('typing'); if(t)t.remove(); }
 
-function appendAI(text, source){
+function appendAI(text, source, commandData){
   removeTyping();
   const d=document.createElement('div');
   d.className='msg ai';
   let extra='';
+  let bodyHtml=renderAnswer(text);
 
-  if(source==='llm'){
+  /* ── Command response (SYSTEM_COMMAND intent) ── */
+  if(source==='command' && commandData){
+    const tier=commandData.tier||'SAFE';
+    const tierClass=tier==='DESTRUCTIVE'?'destructive':'safe';
+    const cmd=commandData.display_command||'';
+    const exec=commandData.execution;
+    extra=`<span class="source-badge cmd">\u26a1 RUN</span><span class="cmd-tier ${tierClass}">${tier}</span>`;
+    bodyHtml=`<p>Executed:</p><div class="cmd-block">${esc(cmd)}</div>`;
+    if(exec && exec.stdout){
+      bodyHtml+=`<div class="cmd-output">${esc(exec.stdout)}</div>`;
+    }
+    if(exec && exec.stderr && !exec.success){
+      bodyHtml+=`<div class="cmd-output" style="border-color:rgba(255,84,112,0.3);color:var(--red)">${esc(exec.stderr)}</div>`;
+    }
+  }
+  /* ── Destructive command pending confirmation ── */
+  else if(source==='command_pending' && commandData){
+    const cmd=commandData.display_command||'';
+    const desc=commandData.description||'';
+    const confirmId='confirm_'+Date.now();
+    extra=`<span class="source-badge cmd">\u26a1 RUN</span><span class="cmd-tier destructive">DESTRUCTIVE</span>`;
+    bodyHtml=`<div class="confirm-panel" id="${confirmId}">`
+      +`<div class="confirm-panel-title">\u26a0\ufe0f Destructive Command \u2014 Confirmation Required</div>`
+      +`<div class="confirm-panel-cmd">${esc(cmd)}</div>`
+      +`<div class="confirm-panel-desc">${esc(desc)}</div>`
+      +`<div class="confirm-actions">`
+      +`<button class="confirm-btn execute" onclick="confirmCommand('${confirmId}')">Confirm &amp; Execute</button>`
+      +`<button class="confirm-btn cancel" onclick="cancelCommand('${confirmId}')">Cancel</button>`
+      +`</div></div>`;
+    /* Stash command_data on the DOM element so confirmCommand can retrieve it */
+    d._commandData=commandData;
+    d.id=confirmId+'_msg';
+  }
+  /* ── Command error ── */
+  else if(source==='command_error'){
+    extra=`<span class="source-badge err">\u26a1 Error</span>`;
+  }
+  /* ── LLM data query ── */
+  else if(source==='llm'){
     extra=`<span class="source-badge llm">LLM</span>`;
-  } else if(source==='error'){
+  }
+  /* ── Out of scope ── */
+  else if(source==='out_of_scope'){
+    extra=`<span class="source-badge out-of-scope">OUT OF SCOPE</span>`;
+  }
+  /* ── Conversational ── */
+  else if(source==='conversational'){
+    extra=`<span class="source-badge" style="color:var(--teal);border-color:rgba(45,212,191,0.15)">CHAT</span>`;
+  }
+  /* ── Error ── */
+  else if(source==='error'){
     extra=`<span class="source-badge err">Error</span>`;
-  } else if(source==='llm_unavailable'){
-    /* JS crashed before because of apostrophe bug — using clean strings here */
-    text="I don't recognize that pattern yet. Try one of these:";
+  }
+  /* ── LLM unavailable ── */
+  else if(source==='llm_unavailable'){
+    text="I can not recognize that pattern yet. Try one of these:";
+    bodyHtml=renderAnswer(text);
     extra=`<div class="quick-chips">
       <div class="qchip" onclick="sendQuick('what are the threats?')">What are the threats?</div>
       <div class="qchip" onclick="sendQuick('list open ports')">List open ports</div>
       <div class="qchip" onclick="sendQuick('what processes are running?')">Processes running</div>
       <div class="qchip" onclick="sendQuick('summarize today')">Summarize today</div>
-      <div class="qchip" onclick="sendQuick('what can you answer?')">What can you answer?</div>
-    </div><span class="source-badge" style="margin-top:6px">offline — set ANTHROPIC_API_KEY for free-form questions</span>`;
+      <div class="qchip" onclick="sendQuick('what can you do?')">What can you do?</div>
+    </div><span class="source-badge" style="margin-top:6px">offline \u2014 set ANTHROPIC_API_KEY for free-form questions</span>`;
   }
 
-  d.innerHTML=`<div class="avatar ai">CS</div><div class="bubble-col"><div class="bubble">${renderAnswer(text)}${extra}</div><div class="msg-time">${now()}</div></div>`;
+  d.innerHTML=`<div class="avatar ai">CS</div><div class="bubble-col"><div class="bubble">${bodyHtml}${extra}</div><div class="msg-time">${now()}</div></div>`;
   chatScroll.appendChild(d);
   chatScroll.scrollTop=chatScroll.scrollHeight;
+}
+
+/* ── Destructive command confirmation flow ── */
+async function confirmCommand(confirmId){
+  const msgEl=document.getElementById(confirmId+'_msg');
+  if(!msgEl || !msgEl._commandData) return;
+  const cd=msgEl._commandData;
+  const panel=document.getElementById(confirmId);
+  if(panel) panel.innerHTML='<p style="color:var(--amber);font-family:var(--font-mono);font-size:11px">\u23f3 Executing...</p>';
+  try{
+    const res=await fetch(`${API}/api/execute`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command_data:{...cd,natural_input:cd.natural_input||''}, confirmed:true})});
+    const result=await res.json();
+    if(panel){
+      let html=`<p style="color:var(--teal);font-family:var(--font-display);font-weight:600;font-size:12px">\u2705 Command executed</p>`;
+      html+=`<div class="cmd-block">${esc(cd.display_command)}</div>`;
+      if(result.stdout) html+=`<div class="cmd-output">${esc(result.stdout)}</div>`;
+      if(result.stderr && !result.success) html+=`<div class="cmd-output" style="border-color:rgba(255,84,112,0.3);color:var(--red)">${esc(result.stderr)}</div>`;
+      if(!result.success && result.error) html+=`<p style="color:var(--red);font-size:12px;margin-top:6px">${esc(result.error)}</p>`;
+      panel.style.borderColor='rgba(45,212,191,0.3)';
+      panel.innerHTML=html;
+    }
+  } catch(e){
+    if(panel) panel.innerHTML=`<p style="color:var(--red)">\u274c Failed to execute: ${esc(e.message)}</p>`;
+  }
+}
+
+function cancelCommand(confirmId){
+  const panel=document.getElementById(confirmId);
+  if(panel){
+    panel.style.borderColor='var(--line)';
+    panel.innerHTML='<p style="color:var(--text-dim);font-family:var(--font-mono);font-size:11px">\u274c Command cancelled by user.</p>';
+  }
 }
 
 function appendWelcome(){
@@ -766,12 +914,14 @@ function appendWelcome(){
     <div class="avatar ai">CS</div>
     <div class="bubble-col">
       <div class="bubble">
-        <p>I watch ports, processes, network, USB, logins, and downloads on this machine. Click any monitor in the sidebar or ask me anything — all answers come from real collected data.</p>
+        <p>I watch ports, processes, network, USB, logins, and downloads on this machine. Ask me anything about your system, or tell me what command to run &mdash; I'll translate plain English into the right Windows command.</p>
         <div class="quick-chips">
           <div class="qchip" onclick="sendQuick('what are the threats?')">What are the threats?</div>
           <div class="qchip" onclick="sendQuick('list open ports')">List open ports</div>
           <div class="qchip" onclick="sendQuick('anything weird today?')">Anything weird today?</div>
-          <div class="qchip" onclick="sendQuick('what can you answer?')">What can you answer?</div>
+          <div class="qchip" onclick="sendQuick('ping google.com')">&#9889; Ping google.com</div>
+          <div class="qchip" onclick="sendQuick('show my IP address')">&#9889; Show my IP</div>
+          <div class="qchip" onclick="sendQuick('what can you do?')">What can you do?</div>
         </div>
       </div>
       <div class="msg-time">${now()}</div>
@@ -812,7 +962,8 @@ async function sendMsg(){
       const d=await res.json();
       const answer = d.answer||'(empty response)';
       const source = d.source||'offline';
-      appendAI(answer, source);
+      const commandData = d.command_data||null;
+      appendAI(answer, source, commandData);
       /* Store this Q&A in the current session */
       addToSession(text, answer, source);
     }
