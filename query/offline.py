@@ -13,6 +13,8 @@ KEY DESIGN RULES:
 import re
 from datetime import datetime, timedelta
 
+import psutil
+
 from db import database as db
 
 _TEMPLATES = []
@@ -134,7 +136,8 @@ def _threats(match, question):
     since = _since(hours=24)
     rows = db.run_readonly_query(
         "SELECT timestamp, category, severity, message, reason, occurrence_count FROM alerts "
-        "WHERE timestamp >= ? ORDER BY timestamp DESC LIMIT 25",
+        "WHERE timestamp >= ? AND COALESCE(acknowledged, 0) = 0 "
+        "ORDER BY timestamp DESC LIMIT 25",
         (since,),
     )
     if not rows:
@@ -274,24 +277,31 @@ def _cpu_memory(match, question):
     r"|what\s*is\s*running|all\s*process"
 )
 def _list_processes(match, question):
-    rows = db.run_readonly_query(
-        """
-        SELECT name, pid, cpu_pct, mem_mb, username, status, timestamp
-        FROM process_snapshots
-        WHERE timestamp >= ?
-        ORDER BY cpu_pct DESC
-        LIMIT 20
-        """,
-        (_since(minutes=60),),
-    )
+    rows = []
+    for process in psutil.process_iter(["pid", "name", "cpu_percent", "memory_info", "username", "status"]):
+        try:
+            info = process.info
+            memory = info.get("memory_info")
+            rows.append({
+                "name": info.get("name") or "Unknown",
+                "pid": info["pid"],
+                "cpu_pct": info.get("cpu_percent") or 0.0,
+                "mem_mb": memory.rss / (1024 * 1024) if memory else 0.0,
+                "username": info.get("username"),
+                "status": info.get("status") or "unknown",
+            })
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            continue
+    rows.sort(key=lambda row: row["cpu_pct"], reverse=True)
+    rows = rows[:20]
     if not rows:
-        return "No process data collected yet. The monitor runs every 30 seconds."
+        return "No running processes could be read."
     lines = [
         f"  {r['name']} (PID {r['pid']}) - "
         f"{r['cpu_pct']:.0f}% CPU, {r['mem_mb']:.0f} MB, {r['status']}"
         for r in rows
     ]
-    return f"Top {len(rows)} processes by CPU (last hour):\n" + "\n".join(lines)
+    return f"Top {len(rows)} running processes by CPU (live):\n" + "\n".join(lines)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -577,7 +587,8 @@ def _summary(match, question):
     since = _since(hours=24)
     alerts = db.run_readonly_query(
         "SELECT category, severity, message FROM alerts "
-        "WHERE timestamp >= ? ORDER BY timestamp DESC",
+        "WHERE timestamp >= ? AND COALESCE(acknowledged, 0) = 0 "
+        "ORDER BY timestamp DESC",
         (since,),
     )
     new_procs = db.run_readonly_query(
@@ -630,7 +641,7 @@ def _greeting(match, question):
         "SELECT cpu_pct, mem_pct FROM system_health ORDER BY timestamp DESC LIMIT 1"
     )
     alerts = db.run_readonly_query(
-        "SELECT COUNT(*) as c FROM alerts WHERE timestamp >= ?",
+        "SELECT COUNT(*) as c FROM alerts WHERE timestamp >= ? AND COALESCE(acknowledged, 0) = 0",
         (_since(hours=24),),
     )[0]["c"]
 
@@ -676,13 +687,51 @@ def _help(match, question):
         "  Files - 'any file changes?', 'filesystem events'\n"
         "  DNS - 'dns queries', 'domain lookups'\n"
         "  Health - 'system health', 'disk space', 'how is my system?'\n"
-        "  Summary - 'anything weird today?', 'daily report', 'brief me'\n\n"
-        "Set NVIDIA_API_KEY in .env to unlock free-form natural language questions."
+        "  Summary - 'anything weird today?', 'daily report', 'brief me'\n"
+        "  Command history - 'what commands have I run recently?'\n\n"
+        "You can also describe a Windows command in plain English "
+        "(list files, ping a host, show IP) and I will translate and run it. "
+        "Destructive actions need confirmation first.\n\n"
+        "Make sure Ollama is running with your model to unlock free-form natural language questions."
     )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 21) THANK YOU / ACKNOWLEDGMENT
+# 21) COMMAND HISTORY — "what commands have I run recently?"
+# ═══════════════════════════════════════════════════════════════════════════════
+@template(
+    r"command.*(history|log|recent|ran|run|executed)"
+    r"|recent\s*command|what.*(command|ran|run|executed)\s*recently"
+    r"|execution\s*log|command\s*audit"
+    r"|what\s*did\s*i\s*(run|execute)"
+)
+def _command_history(match, question):
+    rows = db.run_readonly_query(
+        """
+        SELECT timestamp, natural_input, translated_command, template_id,
+               tier, confirmed, exit_code, success
+        FROM command_logs
+        ORDER BY timestamp DESC
+        LIMIT 15
+        """
+    )
+    if not rows:
+        return "No commands executed yet. Try asking me to run something like 'ping google.com' or 'show my IP'."
+    lines = ["Recent command executions:\n"]
+    for r in rows:
+        ts = (r.get("timestamp") or "")[:19]
+        tier = r.get("tier", "?")
+        status = "✅" if r.get("success") else "❌"
+        confirmed = "confirmed" if r.get("confirmed") else "unconfirmed"
+        natural = r.get("natural_input", "")[:40]
+        cmd = r.get("translated_command", "")[:60]
+        lines.append(f"  {status} [{tier}] {cmd}")
+        lines.append(f"      asked: \"{natural}\"  ({ts}, {confirmed})")
+    return "\n".join(lines)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 22) THANK YOU / ACKNOWLEDGMENT
 # ═══════════════════════════════════════════════════════════════════════════════
 @template(
     r"^(thanks?|thank\s*you|thx|ty|cheers|great|good\s*job|nice|awesome|cool)\b"

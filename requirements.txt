@@ -15,7 +15,7 @@ watchdog>=4.0
 # Optional: desktop notifications
 plyer>=2.1
 
-# Optional: LLM query engine (NVIDIA API) — omit if you only want offline mode
+# Optional: LLM query engine (Ollama local API) — omit if you only want offline mode
 requests>=2.31
 
 # Optional: raw packet capture (requires Npcap on Windows, admin rights)

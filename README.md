@@ -59,16 +59,15 @@ python main.py --mode daemon    # monitors only, no interface (e.g. run as a sch
 ```
 
 To use the web UI: run `--mode api`, then open
-`ui/index.html` in your browser. The UI connects to the API endpoints at
-`http://127.0.0.1:5055/api/ask`, `/api/status`, `/api/feed`, `/api/alerts`
-(the UI currently uses mock data — wiring it to these real endpoints is a
-small fetch()-swap, ask if you'd like that done next).
+http://127.0.0.1:5055/ in the browser (the API also serves `ui/index.html`).
+The UI talks to `/api/ask`, `/api/status`, `/api/feed`, `/api/alerts`,
+`/api/suggest`, and `/api/execute`.
 
 ## How questions get answered
 
 1. **Offline pattern matching** (`query/offline.py`) — regex templates for
    the ~10 most common questions, answered instantly with zero API cost.
-2. **LLM query planning** (`query/llm.py`, only if `ANTHROPIC_API_KEY` is
+2. **LLM query planning** (`query/llm.py`, only if `NVIDIA_API_KEY` is
    set) — for anything else, the LLM is given the exact schema and turns
    your question into SQL. This is what removes the "question ceiling":
    any phrasing, as long as the data exists, gets answered.

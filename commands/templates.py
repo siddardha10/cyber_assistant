@@ -12,6 +12,9 @@ Each template specifies:
   - params: ordered list of parameter names
   - description: human-readable (shown to user + fed to translator LLM)
   - validators: optional dict of param_name → validator function
+  - example_phrasings: natural-language examples for the catalog / LLM prompt
+  - timeout_seconds: per-command timeout (defaults to 45)
+  - is_network: True for commands that hit the network (UI shows "running…")
 
 Adding new command coverage = adding an entry to TEMPLATES. No restructuring.
 
@@ -90,6 +93,13 @@ def validate_search_term(value: str) -> str:
     return value
 
 
+def validate_file_content(value: str) -> str:
+    """Accept literal text content without treating it as a shell parameter."""
+    if len(value) > 1_000_000:
+        raise ValueError("File content cannot exceed 1,000,000 characters")
+    return value
+
+
 def validate_env_var(value: str) -> str:
     """Validate an environment variable name."""
     value = sanitize_param(value)
@@ -117,7 +127,14 @@ TEMPLATES = {
         "cmd": ["cmd", "/c", "dir", "{path}"],
         "params": ["path"],
         "validators": {"path": validate_path},
-        "description": "List files and folders in a directory",
+        "description": "List files and folders in a directory (dir)",
+        "example_phrasings": [
+            "list files in my Downloads folder",
+            "show what's in C:\\Users",
+            "dir my Desktop",
+            "what files are in this folder",
+            "list contents of a folder",
+        ],
     },
     "list_directory_recursive": {
         "tier": "SAFE",
@@ -125,27 +142,63 @@ TEMPLATES = {
         "params": ["path"],
         "validators": {"path": validate_path},
         "description": "Recursively list all files under a directory",
+        "example_phrasings": [
+            "list all files recursively in Downloads",
+            "show every file under C:\\Projects",
+        ],
+    },
+    "change_directory": {
+        "tier": "SAFE",
+        "cmd": ["cmd", "/c", "cd", "/d", "{path}"],
+        "params": ["path"],
+        "validators": {"path": validate_path},
+        "description": "Change the current working directory (cd)",
+        "example_phrasings": [
+            "change directory to C:\\Users",
+            "cd to my Documents folder",
+            "go to C:\\Windows",
+            "navigate to Desktop",
+        ],
     },
     "tree_directory": {
         "tier": "SAFE",
         "cmd": ["cmd", "/c", "tree", "/f", "{path}"],
         "params": ["path"],
         "validators": {"path": validate_path},
-        "description": "Show directory tree structure with files",
+        "description": "Show directory tree structure with files (tree)",
+        "example_phrasings": [
+            "show folder structure of C:\\Projects",
+            "tree my Downloads",
+            "show directory tree",
+            "display folder hierarchy",
+        ],
     },
     "view_file": {
         "tier": "SAFE",
         "cmd": ["cmd", "/c", "type", "{path}"],
         "params": ["path"],
         "validators": {"path": validate_path},
-        "description": "Display the contents of a text file",
+        "description": "Display the contents of a text file (type)",
+        "example_phrasings": [
+            "show contents of readme.txt",
+            "type C:\\config.ini",
+            "view file contents",
+            "cat this file",
+            "read the file",
+        ],
     },
     "search_in_files": {
         "tier": "SAFE",
         "cmd": ["cmd", "/c", "findstr", "/s", "/i", "{term}", "{path}"],
         "params": ["term", "path"],
         "validators": {"term": validate_search_term, "path": validate_path},
-        "description": "Search for a text string inside files",
+        "description": "Search for a text string inside files (findstr)",
+        "example_phrasings": [
+            "search for 'password' in C:\\logs",
+            "find text 'error' inside files",
+            "findstr config in my project",
+            "grep for TODO in source files",
+        ],
     },
     "find_file": {
         "tier": "SAFE",
@@ -153,6 +206,11 @@ TEMPLATES = {
         "params": ["path", "name"],
         "validators": {"path": validate_path, "name": validate_name},
         "description": "Find a file by name under a directory",
+        "example_phrasings": [
+            "find readme.txt in C:\\Projects",
+            "search for a file named config.yaml",
+            "where is setup.exe",
+        ],
     },
     "file_attributes": {
         "tier": "SAFE",
@@ -160,6 +218,11 @@ TEMPLATES = {
         "params": ["path"],
         "validators": {"path": validate_path},
         "description": "Show file attributes (read-only, hidden, system, archive)",
+        "example_phrasings": [
+            "show attributes of this file",
+            "is this file read-only",
+            "check file attributes",
+        ],
     },
 
     # ─── File/Folder Operations ─── DESTRUCTIVE ──────────────────
@@ -168,42 +231,99 @@ TEMPLATES = {
         "cmd": ["cmd", "/c", "mkdir", "{path}"],
         "params": ["path"],
         "validators": {"path": validate_path},
-        "description": "Create a new directory (folder)",
+        "description": "Create a new directory / folder (mkdir)",
+        "example_phrasings": [
+            "create a folder called test",
+            "mkdir new_project",
+            "make a new directory",
+            "create folder C:\\backup",
+        ],
+    },
+    "create_file": {
+        "tier": "DESTRUCTIVE",
+        "cmd": ["file", "create", "{path}"],
+        "params": ["path", "content"],
+        "validators": {"path": validate_path, "content": validate_file_content},
+        "description": "Create a new UTF-8 text file without overwriting an existing file",
+        "example_phrasings": [
+            "create a file named notes.txt in my Documents folder",
+            "create report.json at C:\\temp with content {\"ok\": true}",
+            "make a new .md file containing these notes",
+        ],
+    },
+    "remove_empty_directory": {
+        "tier": "DESTRUCTIVE",
+        "cmd": ["cmd", "/c", "rmdir", "{path}"],
+        "params": ["path"],
+        "validators": {"path": validate_path},
+        "description": "Remove an empty directory (rmdir)",
+        "example_phrasings": [
+            "remove the empty folder temp",
+            "rmdir old_folder",
+            "delete the empty directory",
+        ],
     },
     "delete_file": {
         "tier": "DESTRUCTIVE",
         "cmd": ["cmd", "/c", "del", "/p", "{path}"],
         "params": ["path"],
         "validators": {"path": validate_path},
-        "description": "Delete a file",
+        "description": "Delete a file (del) — DESTRUCTIVE",
+        "example_phrasings": [
+            "delete the file test.txt",
+            "remove old_log.txt",
+            "del C:\\temp\\junk.dat",
+            "erase this file",
+        ],
     },
     "delete_directory": {
         "tier": "DESTRUCTIVE",
         "cmd": ["cmd", "/c", "rmdir", "/s", "/q", "{path}"],
         "params": ["path"],
         "validators": {"path": validate_path},
-        "description": "Delete a directory and all its contents",
+        "description": "Delete a directory and all its contents (rmdir /s /q) — DESTRUCTIVE",
+        "example_phrasings": [
+            "delete the folder and everything in it",
+            "remove directory recursively",
+            "rmdir /s old_project",
+        ],
     },
     "copy_file": {
         "tier": "DESTRUCTIVE",
         "cmd": ["cmd", "/c", "copy", "{source}", "{dest}"],
         "params": ["source", "dest"],
         "validators": {"source": validate_path, "dest": validate_path},
-        "description": "Copy a file to a new location",
+        "description": "Copy a file to a new location (copy / cp)",
+        "example_phrasings": [
+            "copy report.docx to my Desktop",
+            "cp config.ini to C:\\backup",
+            "duplicate this file",
+            "copy a file",
+        ],
     },
     "move_file": {
         "tier": "DESTRUCTIVE",
         "cmd": ["cmd", "/c", "move", "{source}", "{dest}"],
         "params": ["source", "dest"],
         "validators": {"source": validate_path, "dest": validate_path},
-        "description": "Move a file or folder to a new location",
+        "description": "Move a file or folder to a new location (move / mv)",
+        "example_phrasings": [
+            "move report.docx to C:\\archive",
+            "mv old_logs to backup folder",
+            "relocate this file",
+        ],
     },
     "rename_file": {
         "tier": "DESTRUCTIVE",
         "cmd": ["cmd", "/c", "ren", "{path}", "{new_name}"],
         "params": ["path", "new_name"],
         "validators": {"path": validate_path, "new_name": validate_name},
-        "description": "Rename a file or folder",
+        "description": "Rename a file or folder (ren / rename)",
+        "example_phrasings": [
+            "rename old.txt to new.txt",
+            "change filename from report to report_final",
+            "ren config.bak config.ini",
+        ],
     },
 
     # ─── System Info ─── SAFE ─────────────────────────────────────
@@ -213,6 +333,12 @@ TEMPLATES = {
         "params": [],
         "validators": {},
         "description": "Show the computer's hostname",
+        "example_phrasings": [
+            "what's my computer name",
+            "hostname",
+            "show machine name",
+            "what is this PC called",
+        ],
     },
     "whoami": {
         "tier": "SAFE",
@@ -220,6 +346,12 @@ TEMPLATES = {
         "params": [],
         "validators": {},
         "description": "Show the current logged-in user",
+        "example_phrasings": [
+            "who am I",
+            "whoami",
+            "what user am I logged in as",
+            "show current user",
+        ],
     },
     "systeminfo": {
         "tier": "SAFE",
@@ -227,13 +359,43 @@ TEMPLATES = {
         "params": [],
         "validators": {},
         "description": "Show detailed system information (OS, hardware, uptime, etc.)",
+        "timeout_seconds": 60,
+        "example_phrasings": [
+            "show system information",
+            "systeminfo",
+            "what OS am I running",
+            "system details",
+            "tell me about this computer",
+            "show uptime",
+        ],
     },
     "os_version": {
         "tier": "SAFE",
         "cmd": ["cmd", "/c", "ver"],
         "params": [],
         "validators": {},
-        "description": "Show the Windows version",
+        "description": "Show the Windows version (ver)",
+        "example_phrasings": [
+            "what version of Windows",
+            "Windows version",
+            "ver",
+            "OS version",
+        ],
+    },
+    "current_date_time": {
+        "tier": "SAFE",
+        "cmd": ["cmd", "/c", "echo", "%date% %time%"],
+        "params": [],
+        "validators": {},
+        "description": "Show the current date and time",
+        "example_phrasings": [
+            "what time is it",
+            "current date",
+            "show the date and time",
+            "what's today's date",
+            "date",
+            "time",
+        ],
     },
     "env_variable": {
         "tier": "SAFE",
@@ -241,13 +403,24 @@ TEMPLATES = {
         "params": ["var"],
         "validators": {"var": validate_env_var},
         "description": "Show the value of an environment variable",
+        "example_phrasings": [
+            "show the PATH variable",
+            "what is JAVA_HOME set to",
+            "echo %USERPROFILE%",
+        ],
     },
     "all_env_variables": {
         "tier": "SAFE",
         "cmd": ["cmd", "/c", "set"],
         "params": [],
         "validators": {},
-        "description": "List all environment variables",
+        "description": "List all environment variables (set)",
+        "example_phrasings": [
+            "show all environment variables",
+            "list env vars",
+            "set",
+            "what environment variables are set",
+        ],
     },
 
     # ─── Process Management ─── SAFE ──────────────────────────────
@@ -256,7 +429,13 @@ TEMPLATES = {
         "cmd": ["cmd", "/c", "tasklist"],
         "params": [],
         "validators": {},
-        "description": "List all running processes",
+        "description": "List all running processes (tasklist)",
+        "example_phrasings": [
+            "list all running processes",
+            "tasklist",
+            "show running tasks",
+            "what's running right now",
+        ],
     },
     "list_processes_verbose": {
         "tier": "SAFE",
@@ -264,6 +443,11 @@ TEMPLATES = {
         "params": [],
         "validators": {},
         "description": "List all running processes with detailed info (memory, status, CPU time)",
+        "example_phrasings": [
+            "tasklist verbose",
+            "detailed process list",
+            "show processes with memory usage",
+        ],
     },
     "find_process": {
         "tier": "SAFE",
@@ -271,6 +455,12 @@ TEMPLATES = {
         "params": ["name"],
         "validators": {"name": validate_name},
         "description": "Find a specific process by name",
+        "example_phrasings": [
+            "is chrome running",
+            "find process notepad",
+            "check if python.exe is running",
+            "is notepad open",
+        ],
     },
 
     # ─── Process Management ─── DESTRUCTIVE ──────────────────────
@@ -279,14 +469,42 @@ TEMPLATES = {
         "cmd": ["cmd", "/c", "taskkill", "/im", "{name}", "/f"],
         "params": ["name"],
         "validators": {"name": validate_name},
-        "description": "Force kill a process by its name",
+        "description": "Force kill a process by its name (taskkill) — DESTRUCTIVE",
+        "example_phrasings": [
+            "kill notepad",
+            "stop chrome",
+            "end task notepad.exe",
+            "force close the process",
+            "taskkill notepad",
+        ],
     },
     "kill_process_by_pid": {
         "tier": "DESTRUCTIVE",
         "cmd": ["cmd", "/c", "taskkill", "/pid", "{pid}", "/f"],
         "params": ["pid"],
         "validators": {"pid": validate_integer},
-        "description": "Force kill a process by its PID",
+        "description": "Force kill a process by its PID (taskkill /pid) — DESTRUCTIVE",
+        "example_phrasings": [
+            "kill process 1234",
+            "kill PID 5678",
+            "end task with PID 9999",
+        ],
+    },
+
+    # ─── Launch Application ─── SAFE ─────────────────────────────
+    "start_application": {
+        "tier": "SAFE",
+        "cmd": ["cmd", "/c", "start", "", "{name}"],
+        "params": ["name"],
+        "validators": {"name": validate_name},
+        "description": "Launch / open an application (start)",
+        "example_phrasings": [
+            "open notepad",
+            "launch calculator",
+            "start mspaint",
+            "open command prompt",
+            "run explorer",
+        ],
     },
 
     # ─── Service Management ─── SAFE ─────────────────────────────
@@ -295,7 +513,13 @@ TEMPLATES = {
         "cmd": ["cmd", "/c", "sc", "query", "type=", "service", "state=", "all"],
         "params": [],
         "validators": {},
-        "description": "List all Windows services and their status",
+        "description": "List all Windows services and their status (sc query)",
+        "example_phrasings": [
+            "list all Windows services",
+            "sc query",
+            "show services",
+            "what services are running",
+        ],
     },
     "query_service": {
         "tier": "SAFE",
@@ -303,6 +527,12 @@ TEMPLATES = {
         "params": ["name"],
         "validators": {"name": validate_name},
         "description": "Check the status of a specific Windows service",
+        "example_phrasings": [
+            "check status of Windows Update service",
+            "is the print spooler running",
+            "sc query wuauserv",
+            "query service Spooler",
+        ],
     },
 
     # ─── Service Management ─── DESTRUCTIVE ──────────────────────
@@ -311,23 +541,42 @@ TEMPLATES = {
         "cmd": ["cmd", "/c", "net", "start", "{name}"],
         "params": ["name"],
         "validators": {"name": validate_name},
-        "description": "Start a Windows service",
+        "description": "Start a Windows service (net start) — DESTRUCTIVE",
+        "example_phrasings": [
+            "start the print spooler service",
+            "net start wuauserv",
+            "enable Windows Update service",
+        ],
     },
     "stop_service": {
         "tier": "DESTRUCTIVE",
         "cmd": ["cmd", "/c", "net", "stop", "{name}"],
         "params": ["name"],
         "validators": {"name": validate_name},
-        "description": "Stop a Windows service",
+        "description": "Stop a Windows service (net stop) — DESTRUCTIVE",
+        "example_phrasings": [
+            "stop the print spooler",
+            "net stop Spooler",
+            "disable Windows Update service",
+        ],
     },
 
     # ─── Network Diagnostics ─── SAFE ────────────────────────────
     "ping": {
         "tier": "SAFE",
-        "cmd": ["cmd", "/c", "ping", "-n", "4", "{host}"],
+        "cmd": ["cmd", "/c", "ping", "-n", "4", "-w", "2000", "{host}"],
         "params": ["host"],
         "validators": {"host": validate_hostname},
-        "description": "Ping a host to check connectivity (4 packets)",
+        "description": "Ping a host to check connectivity (4 packets, 2s per-packet timeout)",
+        "timeout_seconds": 10,
+        "is_network": True,
+        "example_phrasings": [
+            "ping google.com",
+            "ping 8.8.8.8",
+            "is google.com reachable",
+            "check connectivity to example.com",
+            "can I reach this host",
+        ],
     },
     "ipconfig": {
         "tier": "SAFE",
@@ -335,27 +584,57 @@ TEMPLATES = {
         "params": [],
         "validators": {},
         "description": "Show all network adapter configuration (IP, gateway, DNS)",
+        "example_phrasings": [
+            "show my IP address",
+            "ipconfig",
+            "what's my IP",
+            "network configuration",
+            "show network adapters",
+        ],
     },
     "tracert": {
         "tier": "SAFE",
-        "cmd": ["cmd", "/c", "tracert", "-d", "{host}"],
+        "cmd": ["cmd", "/c", "tracert", "-d", "-w", "1000", "{host}"],
         "params": ["host"],
         "validators": {"host": validate_hostname},
-        "description": "Trace the network route to a host",
+        "description": "Trace the network route to a host (tracert)",
+        "timeout_seconds": 30,
+        "is_network": True,
+        "example_phrasings": [
+            "trace route to google.com",
+            "tracert 8.8.8.8",
+            "show network path to example.com",
+            "how many hops to reach this host",
+        ],
     },
     "nslookup": {
         "tier": "SAFE",
         "cmd": ["cmd", "/c", "nslookup", "{host}"],
         "params": ["host"],
         "validators": {"host": validate_hostname},
-        "description": "Look up the DNS record for a hostname",
+        "description": "Look up the DNS record for a hostname (nslookup)",
+        "timeout_seconds": 10,
+        "is_network": True,
+        "example_phrasings": [
+            "lookup DNS for google.com",
+            "nslookup example.com",
+            "resolve this domain",
+            "what IP does google.com point to",
+        ],
     },
     "netstat": {
         "tier": "SAFE",
         "cmd": ["cmd", "/c", "netstat", "-ano"],
         "params": [],
         "validators": {},
-        "description": "Show all active network connections and listening ports with PIDs",
+        "description": "Show all active network connections and listening ports with PIDs (netstat)",
+        "example_phrasings": [
+            "show active connections",
+            "netstat",
+            "what ports are listening",
+            "list network connections",
+            "show open network ports",
+        ],
     },
     "arp_table": {
         "tier": "SAFE",
@@ -363,6 +642,11 @@ TEMPLATES = {
         "params": [],
         "validators": {},
         "description": "Show the ARP cache (IP-to-MAC mappings on the local network)",
+        "example_phrasings": [
+            "show ARP table",
+            "arp cache",
+            "IP to MAC mappings",
+        ],
     },
     "route_table": {
         "tier": "SAFE",
@@ -370,6 +654,11 @@ TEMPLATES = {
         "params": [],
         "validators": {},
         "description": "Show the IP routing table",
+        "example_phrasings": [
+            "show routing table",
+            "route print",
+            "IP routes",
+        ],
     },
     "flush_dns": {
         "tier": "DESTRUCTIVE",
@@ -377,6 +666,11 @@ TEMPLATES = {
         "params": [],
         "validators": {},
         "description": "Flush the DNS resolver cache",
+        "example_phrasings": [
+            "flush DNS cache",
+            "clear DNS",
+            "ipconfig /flushdns",
+        ],
     },
 
     # ─── Disk Info ─── SAFE ───────────────────────────────────────
@@ -386,13 +680,26 @@ TEMPLATES = {
         "params": [],
         "validators": {},
         "description": "Show disk drives with size, free space, and filesystem type",
+        "example_phrasings": [
+            "show disk space",
+            "how much free space do I have",
+            "disk usage",
+            "drive sizes",
+            "check storage",
+            "free space on C drive",
+        ],
     },
     "disk_usage_dir": {
         "tier": "SAFE",
         "cmd": ["cmd", "/c", "dir", "/s", "/a", "{path}"],
         "params": ["path"],
         "validators": {"path": validate_path},
-        "description": "Calculate total size of a directory",
+        "description": "Calculate total size of a directory (directory size)",
+        "example_phrasings": [
+            "how big is my Downloads folder",
+            "directory size of C:\\Windows",
+            "size of this folder",
+        ],
     },
 
     # ─── Scheduled Tasks ─── SAFE ────────────────────────────────
@@ -401,7 +708,13 @@ TEMPLATES = {
         "cmd": ["cmd", "/c", "schtasks", "/query", "/fo", "TABLE"],
         "params": [],
         "validators": {},
-        "description": "List all scheduled tasks",
+        "description": "List all scheduled tasks (schtasks /query)",
+        "example_phrasings": [
+            "list scheduled tasks",
+            "schtasks query",
+            "show scheduled tasks",
+            "what tasks are scheduled",
+        ],
     },
     "query_scheduled_task": {
         "tier": "SAFE",
@@ -409,6 +722,10 @@ TEMPLATES = {
         "params": ["name"],
         "validators": {"name": validate_name},
         "description": "Show details of a specific scheduled task",
+        "example_phrasings": [
+            "show details of scheduled task X",
+            "query task GoogleUpdateTaskMachineUA",
+        ],
     },
 
     # ─── Startup Programs ─── SAFE ───────────────────────────────
@@ -418,6 +735,13 @@ TEMPLATES = {
         "params": [],
         "validators": {},
         "description": "List programs that run at Windows startup",
+        "example_phrasings": [
+            "list startup programs",
+            "what runs at boot",
+            "show startup entries",
+            "autorun programs",
+            "what launches at login",
+        ],
     },
 
     # ─── Network Share & User Info ─── SAFE ──────────────────────
@@ -427,6 +751,12 @@ TEMPLATES = {
         "params": [],
         "validators": {},
         "description": "List all local user accounts",
+        "example_phrasings": [
+            "list user accounts",
+            "net user",
+            "show all users",
+            "who has accounts on this machine",
+        ],
     },
     "net_user_detail": {
         "tier": "SAFE",
@@ -434,6 +764,10 @@ TEMPLATES = {
         "params": ["name"],
         "validators": {"name": validate_name},
         "description": "Show detailed information about a local user account",
+        "example_phrasings": [
+            "show details for user admin",
+            "net user Administrator",
+        ],
     },
     "net_shares": {
         "tier": "SAFE",
@@ -441,6 +775,11 @@ TEMPLATES = {
         "params": [],
         "validators": {},
         "description": "List all network shares on this machine",
+        "example_phrasings": [
+            "list network shares",
+            "net share",
+            "shared folders",
+        ],
     },
 
     # ─── Power / Shutdown ─── DESTRUCTIVE ────────────────────────
@@ -450,6 +789,11 @@ TEMPLATES = {
         "params": [],
         "validators": {},
         "description": "Shut down the computer (30 second delay)",
+        "example_phrasings": [
+            "shut down the computer",
+            "power off",
+            "shutdown",
+        ],
     },
     "restart": {
         "tier": "DESTRUCTIVE",
@@ -457,6 +801,10 @@ TEMPLATES = {
         "params": [],
         "validators": {},
         "description": "Restart the computer (30 second delay)",
+        "example_phrasings": [
+            "restart the computer",
+            "reboot",
+        ],
     },
     "cancel_shutdown": {
         "tier": "SAFE",
@@ -464,15 +812,25 @@ TEMPLATES = {
         "params": [],
         "validators": {},
         "description": "Cancel a pending shutdown or restart",
+        "example_phrasings": [
+            "cancel shutdown",
+            "abort shutdown",
+            "stop restart",
+        ],
     },
 
     # ─── Battery / Power ─── SAFE ────────────────────────────────
     "battery_status": {
         "tier": "SAFE",
-        "cmd": ["cmd", "/c", "WMIC", "PATH", "Win32_Battery", "Get", "BatteryStatus,EstimatedChargeRemaining,EstimatedRunTime,Status"],
+        "cmd": ["powershell", "-NoProfile", "-Command", "$b=Get-CimInstance -ClassName Win32_Battery; if($null -eq $b){'No battery detected'}else{$b | Select-Object BatteryStatus,EstimatedChargeRemaining,EstimatedRunTime,Status | Format-List}"],
         "params": [],
         "validators": {},
         "description": "Show current battery status, charge percentage, and estimated run time",
+        "example_phrasings": [
+            "battery status",
+            "how much battery",
+            "battery percentage",
+        ],
     },
     "battery_report": {
         "tier": "SAFE",
@@ -480,6 +838,22 @@ TEMPLATES = {
         "params": [],
         "validators": {},
         "description": "Generate a detailed battery health report (saved as HTML)",
+        "example_phrasings": [
+            "generate battery report",
+            "battery health",
+        ],
+    },
+    "battery_charging": {
+        "tier": "SAFE",
+        "cmd": ["powershell", "-NoProfile", "-Command", "$b=Get-CimInstance -ClassName Win32_Battery; if($null -eq $b){'No battery detected'}else{$state=switch($b.BatteryStatus){1{'Discharging'} 2{'On AC power'} 3{'Fully charged'} 4{'Low'} 5{'Critical'} 6{'Charging'} 7{'Charging (high)'} 8{'Charging (low)'} 9{'Charging (critical)'} 11{'Partially charged'} default{'Unknown'}}; \"$state - $($b.EstimatedChargeRemaining)%\"}"],
+        "params": [],
+        "validators": {},
+        "description": "Show whether the battery is charging and its current charge percentage",
+        "example_phrasings": [
+            "is my battery charging",
+            "am I charging",
+            "charging",
+        ],
     },
     "power_scheme": {
         "tier": "SAFE",
@@ -487,6 +861,10 @@ TEMPLATES = {
         "params": [],
         "validators": {},
         "description": "Show the currently active power plan/scheme",
+        "example_phrasings": [
+            "what power plan am I on",
+            "active power scheme",
+        ],
     },
     "power_schemes_list": {
         "tier": "SAFE",
@@ -494,6 +872,10 @@ TEMPLATES = {
         "params": [],
         "validators": {},
         "description": "List all available power plans/schemes",
+        "example_phrasings": [
+            "list power plans",
+            "available power schemes",
+        ],
     },
     "system_power_state": {
         "tier": "SAFE",
@@ -501,6 +883,10 @@ TEMPLATES = {
         "params": [],
         "validators": {},
         "description": "Generate a system power/sleep diagnostics report (saved as HTML)",
+        "example_phrasings": [
+            "power diagnostics report",
+            "system sleep report",
+        ],
     },
 }
 
@@ -554,9 +940,15 @@ def get_template_catalog_for_llm() -> str:
     """
     Produce a compact text catalog of all templates, suitable for including
     in the LLM system prompt so it knows what commands are available.
+    Includes example phrasings to help the model match user intent.
     """
     lines = []
     for tid, t in TEMPLATES.items():
         params_str = ", ".join(t["params"]) if t["params"] else "(no params)"
-        lines.append(f"  {tid} [{t['tier']}] — {t['description']} — params: {params_str}")
+        phrasings = t.get("example_phrasings", [])
+        phrasings_str = " | ".join(phrasings[:3]) if phrasings else ""
+        line = f"  {tid} [{t['tier']}] — {t['description']} — params: {params_str}"
+        if phrasings_str:
+            line += f" — examples: \"{phrasings_str}\""
+        lines.append(line)
     return "\n".join(lines)

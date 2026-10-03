@@ -67,7 +67,7 @@ Anything phrased differently than those templates got a dead end.
 - Conversational questions (greetings, "thanks", genuinely unanswerable
   questions) now get a direct grounded reply instead of an empty query.
 - **To activate:** copy `.env.example` to `.env` and add your
-  `ANTHROPIC_API_KEY`. Until then, offline patterns still work exactly as
+  `NVIDIA_API_KEY`. Until then, offline patterns still work exactly as
   before — this doesn't remove any existing functionality.
 
 Files: `query/llm.py`, `query/engine.py`, `api/server.py`, `ui/index.html`
@@ -154,9 +154,6 @@ Every change above was tested for real, not just read through:
 
 ## Other things worth doing next (not yet implemented)
 
-- **Alert acknowledgment UI** — the `acknowledged` column exists in the
-  schema but nothing sets it; a "dismiss" button on tooltip alerts would
-  let old/handled alerts stop counting toward the threat level.
 - **PID-to-DNS attribution** — `network.py`'s sniffer currently logs DNS
   queries without knowing which process made them; real attribution needs
   OS-level socket correlation, a bigger feature than this pass covered.

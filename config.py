@@ -53,12 +53,11 @@ FS_WATCH_PATHS = [
 ]
 
 # ---------------------------------------------------------------------------
-# LLM (NVIDIA API — OpenAI-compatible endpoint)
+# LLM (Ollama — local OpenAI-compatible endpoint)
 # ---------------------------------------------------------------------------
-NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
-NVIDIA_BASE_URL = os.getenv("CS_NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
-LLM_MODEL = os.getenv("CS_LLM_MODEL", "minimaxai/minimax-m3")
-LLM_ENABLED = bool(NVIDIA_API_KEY)
+OLLAMA_BASE_URL = os.getenv("CS_OLLAMA_BASE_URL", "http://localhost:11434/v1/chat/completions")
+LLM_MODEL = os.getenv("CS_LLM_MODEL", "qwen2.5:3b")
+LLM_ENABLED = os.getenv("CS_LLM_ENABLED", "true").lower() == "true"
 
 # ---------------------------------------------------------------------------
 # Alert thresholds

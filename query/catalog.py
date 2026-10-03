@@ -43,26 +43,59 @@ CATALOG = [
     {"category": "History", "text": "what commands have I run recently?", "desc": "Recent command execution log", "type": "query"},
     {"category": "Help", "text": "what can you do?", "desc": "Full list of capabilities this assistant has", "type": "query"},
 
-    # ── System Commands (⚡ Run) ──────────────────────────────────
+    # ── System Commands — File & Directory (⚡ Run) ───────────────
     {"category": "⚡ Files", "text": "list files in my Downloads folder", "desc": "Run 'dir' on your Downloads directory", "type": "command"},
     {"category": "⚡ Files", "text": "show the contents of a file", "desc": "Display a text file with 'type'", "type": "command"},
     {"category": "⚡ Files", "text": "search for a file by name", "desc": "Find files using 'where /r'", "type": "command"},
     {"category": "⚡ Files", "text": "search inside files for a string", "desc": "Search with 'findstr'", "type": "command"},
-    {"category": "⚡ System", "text": "what's my computer name?", "desc": "Run 'hostname'", "type": "command"},
-    {"category": "⚡ System", "text": "show system information", "desc": "Run 'systeminfo' for hardware and OS details", "type": "command"},
-    {"category": "⚡ System", "text": "who am I logged in as?", "desc": "Run 'whoami'", "type": "command"},
-    {"category": "⚡ Network", "text": "ping google.com", "desc": "Test network connectivity with ping", "type": "command"},
-    {"category": "⚡ Network", "text": "show my IP address", "desc": "Run 'ipconfig /all'", "type": "command"},
-    {"category": "⚡ Network", "text": "trace route to a host", "desc": "Run 'tracert' to map the network path", "type": "command"},
-    {"category": "⚡ Network", "text": "lookup DNS for a domain", "desc": "Run 'nslookup'", "type": "command"},
-    {"category": "⚡ Network", "text": "show active connections", "desc": "Run 'netstat -ano'", "type": "command"},
+    {"category": "⚡ Files", "text": "show folder structure", "desc": "Display directory tree with 'tree /f'", "type": "command"},
+    {"category": "⚡ Files", "text": "create a new folder", "desc": "Run 'mkdir' — requires confirmation", "type": "command"},
+    {"category": "⚡ Files", "text": "create a file named notes.txt in Documents", "desc": "Create a text file with specified content — requires confirmation", "type": "command"},
+    {"category": "⚡ Files", "text": "copy a file", "desc": "Run 'copy' — requires confirmation", "type": "command"},
+    {"category": "⚡ Files", "text": "move a file", "desc": "Run 'move' — requires confirmation", "type": "command"},
+    {"category": "⚡ Files", "text": "rename a file", "desc": "Run 'ren' — requires confirmation", "type": "command"},
+    {"category": "⚡ Files", "text": "delete a file", "desc": "Run 'del' — requires confirmation", "type": "command"},
+    {"category": "⚡ Files", "text": "remove an empty folder", "desc": "Run 'rmdir' — requires confirmation", "type": "command"},
+
+    # ── System Commands — Process & Task Management ───────────────
     {"category": "⚡ Processes", "text": "list all running processes", "desc": "Run 'tasklist'", "type": "command"},
     {"category": "⚡ Processes", "text": "find a process by name", "desc": "Run 'tasklist /fi'", "type": "command"},
-    {"category": "⚡ Processes", "text": "kill a process by name", "desc": "Run 'taskkill' (requires confirmation)", "type": "command"},
+    {"category": "⚡ Processes", "text": "kill a process by name", "desc": "Run 'taskkill' — requires confirmation", "type": "command"},
+    {"category": "⚡ Processes", "text": "open notepad", "desc": "Launch an app with 'start'", "type": "command"},
+
+    # ── System Commands — System Info ─────────────────────────────
+    {"category": "⚡ System", "text": "what's my computer name?", "desc": "Run 'hostname'", "type": "command"},
+    {"category": "⚡ System", "text": "who am I logged in as?", "desc": "Run 'whoami'", "type": "command"},
+    {"category": "⚡ System", "text": "show system information", "desc": "Run 'systeminfo' for hardware and OS details", "type": "command"},
+    {"category": "⚡ System", "text": "what version of Windows?", "desc": "Run 'ver'", "type": "command"},
+    {"category": "⚡ System", "text": "what time is it?", "desc": "Show current date and time", "type": "command"},
+    {"category": "⚡ System", "text": "show all environment variables", "desc": "Run 'set'", "type": "command"},
+    {"category": "⚡ System", "text": "restart the computer", "desc": "Schedule a restart after confirmation", "type": "command"},
+    {"category": "⚡ System", "text": "shut down the computer", "desc": "Schedule a shutdown after confirmation", "type": "command"},
+    {"category": "⚡ System", "text": "battery status", "desc": "Show current charge and estimated runtime", "type": "command"},
+    {"category": "⚡ System", "text": "battery health", "desc": "Generate a detailed Windows battery report", "type": "command"},
+    {"category": "⚡ System", "text": "is my battery charging?", "desc": "Show charging state and current charge", "type": "command"},
+
+    # ── System Commands — Network ─────────────────────────────────
+    {"category": "⚡ Network", "text": "ping google.com", "desc": "Test network connectivity with ping (timeout: ~10s)", "type": "command"},
+    {"category": "⚡ Network", "text": "show my IP address", "desc": "Run 'ipconfig /all'", "type": "command"},
+    {"category": "⚡ Network", "text": "trace route to a host", "desc": "Run 'tracert' to map the network path (timeout: ~30s)", "type": "command"},
+    {"category": "⚡ Network", "text": "lookup DNS for a domain", "desc": "Run 'nslookup'", "type": "command"},
+    {"category": "⚡ Network", "text": "show active connections", "desc": "Run 'netstat -ano'", "type": "command"},
+
+    # ── System Commands — Disk & Storage ──────────────────────────
+    {"category": "⚡ Disk", "text": "show disk space", "desc": "Show drive sizes and free space", "type": "command"},
+    {"category": "⚡ Disk", "text": "how big is my Downloads folder?", "desc": "Calculate directory size", "type": "command"},
+
+    # ── System Commands — Services ────────────────────────────────
     {"category": "⚡ Services", "text": "list all Windows services", "desc": "Run 'sc query'", "type": "command"},
     {"category": "⚡ Services", "text": "check status of a service", "desc": "Query a specific Windows service", "type": "command"},
-    {"category": "⚡ Disk", "text": "show disk space", "desc": "Show drive sizes and free space", "type": "command"},
+    {"category": "⚡ Services", "text": "start a Windows service", "desc": "Run 'net start' — requires confirmation", "type": "command"},
+    {"category": "⚡ Services", "text": "stop a Windows service", "desc": "Run 'net stop' — requires confirmation", "type": "command"},
+
+    # ── System Commands — Scheduled Tasks / Startup ───────────────
     {"category": "⚡ Tasks", "text": "list scheduled tasks", "desc": "Run 'schtasks /query'", "type": "command"},
+    {"category": "⚡ Tasks", "text": "list startup programs", "desc": "Show programs that auto-launch at boot", "type": "command"},
 ]
 
 

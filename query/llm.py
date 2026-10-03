@@ -64,16 +64,17 @@ CAPABILITIES = {
     ],
     "commands": [
         "Run Windows commands described in plain English",
-        "File operations — list, view, search, copy, move, rename, delete files and folders",
-        "System info — hostname, whoami, systeminfo, OS version, environment variables",
-        "Process management — list processes, find a process, kill a process",
-        "Service management — list, query, start, stop Windows services",
-        "Network diagnostics — ping, ipconfig, tracert, nslookup, netstat, arp, routes",
-        "Disk info — drive sizes, free space, directory sizes",
-        "Scheduled tasks — list and query Task Scheduler entries",
-        "Startup programs — list programs that run at boot",
+        "File & directory — dir, cd, mkdir, rmdir, copy, move, ren, del, type, findstr, tree",
+        "System info — hostname, whoami, systeminfo, ver, date/time, environment variables (set)",
+        "Process management — tasklist, find process, taskkill, start/launch an application",
+        "Service management — sc query, net start, net stop Windows services",
+        "Network diagnostics — ping, ipconfig, tracert, nslookup, netstat, arp, routes (with timeouts)",
+        "Disk & storage — disk usage/free space (wmic logicaldisk), directory size",
+        "Scheduled tasks — schtasks /query, list and query Task Scheduler entries",
+        "Startup programs — list programs that run at boot/login",
         "User accounts — list users, user details, network shares",
-        "All destructive commands require explicit confirmation before running",
+        "All destructive commands (del, taskkill, net stop, rmdir, move/overwrite) require explicit confirmation",
+        "Every executed command is logged — ask 'what commands have I run recently?' to see the log",
     ],
 }
 
@@ -137,7 +138,8 @@ You have access to this SQLite schema (read-only):
 
 The `alerts` table has a `reason` column explaining WHY a category of alert matters in general, and
 `occurrence_count` showing how many times a deduplicated condition has repeated — include these when
-a question is about threats/alerts/danger.
+a question is about threats/alerts/danger. `acknowledged` is 1 when the user dismissed an alert;
+exclude those from threat-level / "am I safe" answers unless they explicitly ask for dismissed alerts.
 
 The `command_logs` table records every system command that has been executed through this assistant —
 use it when users ask about their command history.
@@ -180,7 +182,7 @@ _JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 def _call_llm(system: str, messages: list, max_tokens: int = 500) -> str:
     """
-    Call the NVIDIA API (OpenAI-compatible chat completions endpoint).
+    Call the local Ollama instance (OpenAI-compatible chat completions endpoint).
     Prepends the system prompt as a system message.
     Retries up to 3 times with exponential backoff on transient failures.
     """
@@ -190,21 +192,19 @@ def _call_llm(system: str, messages: list, max_tokens: int = 500) -> str:
     payload = {
         "model": config.LLM_MODEL,
         "messages": full_messages,
-        "temperature": 0.7,
+        "temperature": 0.3,
         "top_p": 0.95,
         "max_tokens": max_tokens,
         "stream": False,
     }
     headers = {
-        "Authorization": f"Bearer {config.NVIDIA_API_KEY}",
-        "Accept": "application/json",
         "Content-Type": "application/json",
     }
 
     last_err = None
     for attempt in range(3):
         try:
-            resp = requests.post(config.NVIDIA_BASE_URL, headers=headers, json=payload, timeout=60)
+            resp = requests.post(config.OLLAMA_BASE_URL, headers=headers, json=payload, timeout=120)
             resp.raise_for_status()
             data = resp.json()
             return data["choices"][0]["message"]["content"]
@@ -212,7 +212,7 @@ def _call_llm(system: str, messages: list, max_tokens: int = 500) -> str:
             last_err = e
             if attempt < 2:
                 wait = 2 ** attempt  # 1s, 2s
-                log.warning("NVIDIA API attempt %d failed (%s), retrying in %ds...", attempt + 1, e, wait)
+                log.warning("Ollama API attempt %d failed (%s), retrying in %ds...", attempt + 1, e, wait)
                 time.sleep(wait)
 
     raise last_err
@@ -307,7 +307,7 @@ def handle_data_query(question: str, context: list | None = None) -> dict:
     """
     if not config.LLM_ENABLED:
         return {
-            "answer": "The LLM query engine isn't configured (no NVIDIA_API_KEY set).",
+            "answer": "The LLM query engine isn't configured. Make sure Ollama is running (`ollama serve`).",
             "sql": None, "source": "llm_unavailable", "intent": "DATA_QUERY",
         }
 
@@ -347,6 +347,14 @@ def handle_data_query(question: str, context: list | None = None) -> dict:
                 "answer": "I generated a query for that but it didn't pass safety validation, so I won't run it. "
                           "Try rephrasing the question.",
                 "sql": sql, "source": "llm_rejected", "intent": "DATA_QUERY",
+            }
+        except Exception as e:
+            # Catches sqlite3.OperationalError (bad column/table names) and similar
+            log.warning("LLM-generated SQL execution failed (%s): %s", e, sql)
+            return {
+                "answer": "I tried to query the database but the generated SQL had an error. "
+                          "Try rephrasing the question.",
+                "sql": sql, "source": "llm_sql_error", "intent": "DATA_QUERY",
             }
     else:
         reasoning = plan.get("reasoning")
@@ -453,10 +461,13 @@ def handle_system_command(question: str, context: list | None = None) -> dict:
     result = translate(question)
 
     if not result["success"]:
+        # Distinguish "unsupported" (no matching template) from other errors
+        error_msg = result["error"] or "I couldn't translate that into a command."
+        is_unsupported = error_msg.lower().startswith("unsupported")
         return {
-            "answer": result["error"],
+            "answer": error_msg,
             "sql": None,
-            "source": "command_error",
+            "source": "unsupported" if is_unsupported else "command_error",
             "intent": "SYSTEM_COMMAND",
             "command_data": None,
         }
@@ -468,6 +479,8 @@ def handle_system_command(question: str, context: list | None = None) -> dict:
         "display_command": result["display_command"],
         "description": result["description"],
         "command_parts": result["command_parts"],
+        "is_network": result.get("is_network", False),
+        "natural_input": question,
     }
 
     # SAFE commands: execute immediately and return output
@@ -484,11 +497,20 @@ def handle_system_command(question: str, context: list | None = None) -> dict:
         command_data["execution"] = exec_result
         output = exec_result.get("stdout", "") or ""
         stderr = exec_result.get("stderr", "") or ""
+        failure_reason = exec_result.get("failure_reason")
 
         if exec_result["success"]:
             answer = f"Executed: `{result['display_command']}`\n\n{output.strip()}"
         else:
-            answer = f"Command failed: `{result['display_command']}`\n\n{stderr.strip() or output.strip()}"
+            # For network commands, show the specific failure reason prominently
+            if failure_reason:
+                answer = (
+                    f"Command: `{result['display_command']}`\n\n"
+                    f"⚠ {failure_reason}\n\n"
+                    f"{output.strip()}"
+                )
+            else:
+                answer = f"Command failed: `{result['display_command']}`\n\n{stderr.strip() or output.strip()}"
 
         return {
             "answer": answer,
@@ -524,6 +546,10 @@ def ask(question: str, context: list | None = None) -> dict:
     Main LLM entry point. Classifies intent first, then routes to handler.
     This is only called when the offline cache misses.
     """
+    from commands.translator import is_local_path_request
+    if is_local_path_request(question):
+        return handle_system_command(question, context)
+
     classification = classify_intent(question, context)
     intent = classification.get("intent")
 

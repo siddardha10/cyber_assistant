@@ -162,6 +162,21 @@ def insert_alert(category: str, severity: str, message: str, source_table: str =
     })
 
 
+def acknowledge_alert(alert_id: int) -> bool:
+    """
+    Mark an alert as handled so it no longer counts toward threat level.
+    Returns False if the id does not exist.
+    """
+    conn = get_connection()
+    with _lock:
+        row = conn.execute("SELECT id FROM alerts WHERE id = ?", (int(alert_id),)).fetchone()
+        if row is None:
+            return False
+        conn.execute("UPDATE alerts SET acknowledged = 1 WHERE id = ?", (int(alert_id),))
+        conn.commit()
+    return True
+
+
 def run_readonly_query(sql: str, params: tuple = ()) -> list:
     """
     Executes a pre-validated read-only SQL string (validation happens in

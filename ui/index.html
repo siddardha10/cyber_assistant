@@ -202,6 +202,13 @@
   .threat-tooltip-why b{color:var(--text-mid);}
   .threat-tooltip-cat{color:var(--text-dim);font-family:var(--font-mono);font-size:9.5px;}
   .threat-tooltip-empty{color:var(--text-dim);font-style:italic;padding:4px 0;}
+  .threat-tooltip-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:2px;}
+  .threat-dismiss{
+    font-family:var(--font-mono);font-size:9.5px;letter-spacing:.3px;
+    background:transparent;border:1px solid var(--line);color:var(--text-dim);
+    border-radius:6px;padding:2px 7px;cursor:pointer;flex-shrink:0;
+  }
+  .threat-dismiss:hover{border-color:var(--teal);color:var(--teal);}
 
   /* chat scroll */
   .chat-scroll{
@@ -368,6 +375,29 @@
   .typing span:nth-child(2){animation-delay:.15s;}
   .typing span:nth-child(3){animation-delay:.3s;}
   @keyframes typingBounce{0%,60%,100%{transform:translateY(0);opacity:.4;}30%{transform:translateY(-4px);opacity:1;}}
+
+  /* network running indicator */
+  .net-running{
+    display:flex;align-items:center;gap:8px;
+    font-family:var(--font-mono);font-size:11.5px;color:var(--amber);
+    padding:6px 0;
+  }
+  .net-running-spinner{
+    width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--amber);
+    border-radius:50%;animation:netSpin 0.8s linear infinite;
+  }
+  @keyframes netSpin{to{transform:rotate(360deg);}}
+
+  /* unsupported badge */
+  .source-badge.unsupported{color:var(--amber);border-color:rgba(245,166,35,0.25);background:var(--amber-glow);}
+
+  /* failure reason block */
+  .cmd-failure{
+    background:rgba(245,166,35,0.08);border:1px solid rgba(245,166,35,0.3);border-radius:8px;
+    padding:10px 14px;margin:8px 0;
+    font-family:var(--font-mono);font-size:11.5px;color:var(--amber);
+    line-height:1.45;
+  }
 
   /* input area */
   .input-zone{padding:10px 22px 20px;flex-shrink:0;}
@@ -539,9 +569,9 @@
         <div class="topbar-sub" id="hostline">DESKTOP-SID · Windows 11 · connecting…</div>
       </div>
       <div class="threat-level low" id="threatBadge"
-           onclick="sendQuick('show me all threats and alerts')">
+           onclick="toggleThreatTooltip(event)" title="Click to pin alert details">
         <span class="bar"></span><span id="threatText">THREAT LEVEL: LOW</span>
-        <div class="threat-tooltip" id="threatTooltip">
+        <div class="threat-tooltip" id="threatTooltip" onclick="event.stopPropagation()">
           <div class="threat-tooltip-title">Active Alerts (24h)</div>
           <div id="threatTooltipBody">
             <div class="threat-tooltip-empty">No alerts — system is clean.</div>
@@ -812,10 +842,14 @@ function appendAI(text, source, commandData){
     const exec=commandData.execution;
     extra=`<span class="source-badge cmd">\u26a1 RUN</span><span class="cmd-tier ${tierClass}">${tier}</span>`;
     bodyHtml=`<p>Executed:</p><div class="cmd-block">${esc(cmd)}</div>`;
+    /* Show specific failure reason prominently for network commands */
+    if(exec && exec.failure_reason){
+      bodyHtml+=`<div class="cmd-failure">\u26a0 ${esc(exec.failure_reason)}</div>`;
+    }
     if(exec && exec.stdout){
       bodyHtml+=`<div class="cmd-output">${esc(exec.stdout)}</div>`;
     }
-    if(exec && exec.stderr && !exec.success){
+    if(exec && exec.stderr && !exec.success && !exec.failure_reason){
       bodyHtml+=`<div class="cmd-output" style="border-color:rgba(255,84,112,0.3);color:var(--red)">${esc(exec.stderr)}</div>`;
     }
   }
@@ -840,6 +874,10 @@ function appendAI(text, source, commandData){
   /* ── Command error ── */
   else if(source==='command_error'){
     extra=`<span class="source-badge err">\u26a1 Error</span>`;
+  }
+  /* ── Unsupported command ── */
+  else if(source==='unsupported'){
+    extra=`<span class="source-badge unsupported">UNSUPPORTED</span>`;
   }
   /* ── LLM data query ── */
   else if(source==='llm'){
@@ -867,7 +905,7 @@ function appendAI(text, source, commandData){
       <div class="qchip" onclick="sendQuick('what processes are running?')">Processes running</div>
       <div class="qchip" onclick="sendQuick('summarize today')">Summarize today</div>
       <div class="qchip" onclick="sendQuick('what can you do?')">What can you do?</div>
-    </div><span class="source-badge" style="margin-top:6px">offline \u2014 set ANTHROPIC_API_KEY for free-form questions</span>`;
+    </div><span class="source-badge" style="margin-top:6px">offline \u2014 set NVIDIA_API_KEY for free-form questions</span>`;
   }
 
   d.innerHTML=`<div class="avatar ai">CS</div><div class="bubble-col"><div class="bubble">${bodyHtml}${extra}</div><div class="msg-time">${now()}</div></div>`;
@@ -948,6 +986,8 @@ async function sendMsg(){
   appendUser(text);
   inputBox.value=''; inputBox.style.height='auto'; inputBox.disabled=false;
   appendTyping();
+  /* Show "running..." state for network commands (detected after response) */
+  let networkRunningEl=null;
   try{
     /* Send the last few Q&A turns from THIS session as context, so the LLM
        path can resolve follow-ups like "what about yesterday?" instead of
@@ -963,6 +1003,8 @@ async function sendMsg(){
       const answer = d.answer||'(empty response)';
       const source = d.source||'offline';
       const commandData = d.command_data||null;
+      /* Remove network running indicator if present */
+      if(networkRunningEl){ networkRunningEl.remove(); networkRunningEl=null; }
       appendAI(answer, source, commandData);
       /* Store this Q&A in the current session */
       addToSession(text, answer, source);
@@ -1035,7 +1077,7 @@ async function pollStatus(){
 
     /* LLM hint */
     document.getElementById('inputFoot').textContent=d.llm_enabled===false
-      ?'Offline mode — set ANTHROPIC_API_KEY in .env for free-form questions.'
+      ?'Offline mode — set NVIDIA_API_KEY in .env for free-form questions.'
       :'Answers come only from data collected on this machine — never invented.';
 
     /* Host line */
@@ -1046,6 +1088,27 @@ async function pollStatus(){
 
   } catch(e){ setOnline(false); }
 }
+
+function toggleThreatTooltip(ev){
+  if(ev) ev.stopPropagation();
+  document.getElementById('threatTooltip').classList.toggle('pinned');
+}
+async function dismissAlert(id, ev){
+  if(ev){ ev.preventDefault(); ev.stopPropagation(); }
+  try{
+    const res=await fetch(`${API}/api/alerts/${id}/acknowledge`,{method:'POST'});
+    if(!res.ok) throw 0;
+    await pollStatus();
+  }catch{
+    /* leave tooltip as-is; next status poll will refresh */
+  }
+}
+document.addEventListener('click', (ev)=>{
+  const tip=document.getElementById('threatTooltip');
+  const badge=document.getElementById('threatBadge');
+  if(!tip || !badge) return;
+  if(!badge.contains(ev.target)) tip.classList.remove('pinned');
+});
 
 async function updateThreatLevel(total){
   const tb=threatBadge;
@@ -1080,11 +1143,15 @@ async function updateThreatLevel(total){
         const msg=esc(a.message||'No details');
         const occ=(a.occurrence_count||1)>1?` <span class="threat-tooltip-occ">\u00d7${a.occurrence_count}</span>`:'';
         const reasonHtml=a.reason?`<div class="threat-tooltip-why"><b>Why:</b> ${esc(a.reason)}</div>`:'';
+        const aid=Number(a.id)||0;
         html+=`<div class="threat-tooltip-row">`
           +`<span class="threat-tooltip-sev ${sevClass}">${sev}</span>`
-          +`<div><div class="threat-tooltip-msg">${msg}${occ}</div>`
+          +`<div style="flex:1;min-width:0"><div class="threat-tooltip-msg">${msg}${occ}</div>`
           +reasonHtml
-          +`<div class="threat-tooltip-cat">${cat}</div></div></div>`;
+          +`<div class="threat-tooltip-actions">`
+          +`<div class="threat-tooltip-cat">${cat}</div>`
+          +(aid?`<button type="button" class="threat-dismiss" onclick="dismissAlert(${aid},event)">Dismiss</button>`:'')
+          +`</div></div></div>`;
       });
       if(rec.length>6) html+=`<div class="threat-tooltip-row" style="color:var(--text-dim);font-style:italic;">+${rec.length-6} more alert(s)\u2026</div>`;
       tooltipBody.innerHTML=html;

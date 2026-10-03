@@ -10,7 +10,8 @@ Endpoints:
   GET  /api/suggest     command-palette suggestions (now includes ⚡ Run items)
   GET  /api/status      monitor + live health snapshot
   GET  /api/feed        recent raw events across all tables
-  GET  /api/alerts      recent alerts
+  GET  /api/alerts      recent alerts (active/unacknowledged by default)
+  POST /api/alerts/<id>/acknowledge  dismiss an alert so it drops from threat level
   GET  /api/history     recent query_logs rows
 """
 
@@ -149,7 +150,8 @@ def api_status():
     )
 
     alerts_24h = db.run_readonly_query(
-        "SELECT COUNT(*) as c FROM alerts WHERE timestamp >= datetime('now', '-1 day')"
+        "SELECT COUNT(*) as c FROM alerts WHERE timestamp >= datetime('now', '-1 day') "
+        "AND COALESCE(acknowledged, 0) = 0"
     )
 
     # Disk usage from most recent health row
@@ -189,7 +191,28 @@ def api_feed():
 @app.route("/api/alerts", methods=["GET"])
 def api_alerts():
     limit = int(request.args.get("limit", 20))
-    return jsonify(db.get_recent("alerts", limit=limit))
+    # Default: only alerts that still count toward threat level.
+    # Pass active=0 to include dismissed rows (history / debugging).
+    active_only = request.args.get("active", "1") != "0"
+    if not active_only:
+        return jsonify(db.get_recent("alerts", limit=limit))
+    rows = db.run_readonly_query(
+        """
+        SELECT * FROM alerts
+        WHERE COALESCE(acknowledged, 0) = 0
+        ORDER BY timestamp DESC, id DESC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+    return jsonify(rows)
+
+
+@app.route("/api/alerts/<int:alert_id>/acknowledge", methods=["POST"])
+def api_acknowledge_alert(alert_id):
+    if not db.acknowledge_alert(alert_id):
+        return jsonify({"error": "Alert not found"}), 404
+    return jsonify({"ok": True, "id": alert_id, "acknowledged": 1})
 
 
 @app.route("/api/history", methods=["GET"])
