@@ -1,159 +1,181 @@
-# CyberSentinel — Personal Cyber Assistant
+# CyberSentinel
 
-A continuously-running local security monitor for Windows that answers
-plain-English questions about your own machine — "which process opened
-port 8080", "did anyone try to login yesterday", "anything weird today" —
-grounded entirely in data it actually collected, never invented.
+CyberSentinel is a local personal cyber assistant for Windows. It continuously
+collects system activity, stores it in a local database, and lets you ask
+plain-English questions such as:
 
-Think of it as two systems working together:
+- Which process opened port 8080?
+- Did anyone try to log in yesterday?
+- What changed on my machine today?
+- Is anything suspicious running right now?
+- What software did I install this week?
 
+The project is designed to answer questions using data it has actually
+collected on your machine instead of guessing.
+
+## What it does
+
+CyberSentinel runs background monitors for common security and system signals,
+including:
+
+- running processes
+- open ports
+- USB device activity
+- login events
+- browser activity
+- startup entries
+- installed software
+- services and scheduled tasks
+- filesystem changes
+- network activity (optional)
+- health checks and alerts
+
+It stores the collected data in a SQLite database and answers questions through
+an offline query system and optional LLM-backed query planning.
+
+## How it works
+
+CyberSentinel combines:
+
+1. Offline detection for common questions
+2. Optional local LLM query planning for more flexible natural-language
+   questions
+3. Query validation to restrict database access to safe SQL patterns
+4. A CLI and a web UI for interaction
+
+## Project layout
+
+```text
+cyber_assistant/
+├── main.py
+├── config.py
+├── requirements.txt
+├── .env.example
+├── README.md
+├── alerts/
+├── api/
+├── cli/
+├── commands/
+├── db/
+├── monitors/
+├── query/
+├── ui/
+├── utils/
+├── test_command_engine.py
+├── test_intent_router.py
+├── test_ollama_queries.py
+├── test_reliability.py
+└── data/
 ```
-┌─────────────────────────────────────────────────┐
-│                Background Daemon                │
-│  processes · ports · usb · logins · browser      │
-│  startup · services · scheduled tasks · fs        │
-│  network (optional) · health                      │
-│                     ↓                             │
-│               SQLite Database                    │
-└─────────────────────────────────────────────────┘
-                     ↓
-┌─────────────────────────────────────────────────┐
-│                 Query Engine                     │
-│  offline pattern match → LLM (SQL + explain) →   │
-│  sql_guard validation → grounded answer          │
-└─────────────────────────────────────────────────┘
-                     ↓
-        CLI (terminal)   or   Flask API (web UI)
-```
 
-## Install
+## Requirements
+
+- Python 3.10+
+- Windows 10/11 (recommended)
+- Administrator rights for some monitors (login auditing, service and system
+  collection, certain Windows APIs)
+
+## Installation
+
+Open a terminal in the project folder and run:
 
 ```bash
 python -m venv venv
-venv\Scripts\activate          # Windows
-pip install -r requirements.txt --break-system-packages   # or without the flag in a venv
-copy .env.example .env         # optional — only needed for the LLM query engine
+venv\Scripts\activate
+pip install -r requirements.txt
+copy .env.example .env
 ```
 
-Some monitors need extra setup:
+The `.env` file is optional, but it is useful if you want to enable or adjust
+advanced settings such as the LLM model, API port, filesystem watch, alerts, and
+monitor intervals.
 
-| Monitor | Requirement |
-|---|---|
-| Logins | Install `requirements.txt`, run as **Administrator**, and enable both success and failure auditing with `auditpol /set /subcategory:"Logon" /success:enable /failure:enable` |
-| USB | `pip install wmi pywin32` |
-| Services / Startup / Software / Scheduled tasks | Windows only, uses `winreg` / `psutil.win_service_iter` / `schtasks` |
-| Network sniffer (optional, off by default) | `pip install scapy`, Npcap installed, Administrator |
-| Filesystem watch | `pip install watchdog` (already in requirements.txt) |
-| Desktop notifications | `pip install plyer` (already in requirements.txt) |
+## Optional setup for advanced features
 
-Every monitor is written to **fail gracefully**: if a dependency or
-permission is missing, that one monitor logs a warning and sits idle —
-it never crashes the rest of the daemon. Check `logs/cybersentinel.log`.
+Some monitors and features need extra setup:
 
-## Run
+- Logins: run as Administrator and enable Windows logon auditing:
+
+```powershell
+auditpol /set /subcategory:"Logon" /success:enable /failure:enable
+```
+
+- USB / Windows-specific integrations: these are handled by Windows packages in
+  the requirements file and may require admin access.
+- Filesystem watcher: already included in the requirements file.
+- Desktop notifications: already included in the requirements file.
+- Raw packet capture for network monitoring: optional and disabled by default;
+  requires Npcap and Administrator rights.
+- Local LLM support: install and run Ollama, then pull the required models:
 
 ```bash
-python main.py --mode cli       # terminal REPL — ask questions directly
-python main.py --mode api       # starts the Flask API on :5055 for the web UI
-python main.py --mode daemon    # monitors only, no interface (e.g. run as a scheduled task)
+ollama serve
+ollama pull qwen2.5:3b
+ollama pull nomic-embed-text
 ```
 
-To use the web UI: run `--mode api`, then open
-http://127.0.0.1:5055/ in the browser (the API also serves `ui/index.html`).
-The UI talks to `/api/ask`, `/api/status`, `/api/feed`, `/api/alerts`,
-`/api/suggest`, and `/api/execute`.
+## Running the app
 
-## How questions get answered
+Start the app in CLI mode:
 
-1. **Offline pattern matching** (`query/offline.py`) — regex templates for
-   the ~10 most common questions, answered instantly with zero API cost.
-2. **LLM query planning** (`query/llm.py`, only if `NVIDIA_API_KEY` is
-   set) — for anything else, the LLM is given the exact schema and turns
-   your question into SQL. This is what removes the "question ceiling":
-   any phrasing, as long as the data exists, gets answered.
-3. **`query/sql_guard.py`** — every LLM-generated query is validated before
-   it ever touches the database: SELECT-only, single statement, whitelisted
-   tables only. This is a hard security boundary, not a suggestion to the model.
-
-System actions use goal-first JSON parsing and retrieve at most five actions
-from the command registry. The local embedding model is configured with
-`CS_OLLAMA_EMBED_MODEL` (default `nomic-embed-text`); pull it separately with
-`ollama pull nomic-embed-text`. If it is unavailable, local lexical and typo
-similarity matching remains available. A low-confidence local parse can retry
-against an explicitly configured HTTPS OpenAI-compatible cloud endpoint;
-cloud retry is disabled by default and strips common machine identifiers.
-
-Action tiers are `SAFE`, `CREATE`, and `DESTRUCTIVE`. New folders, ordinary
-text files, and copies to non-existing destinations are validated and verified
-before reporting success. Executables/scripts and state-changing operations
-remain click-to-confirm. Existing targets and protected Windows locations are
-never silently overwritten or modified. Unknown local requests may offer an
-approval-gated web fallback using a fixed, generic search query; the original
-message and target names are not sent.
-Explicit application launch requests such as `open notepad` or
-`launch calculator` are routed locally, resolved against installed
-applications, and run through the validated command registry without
-requiring the LLM.
-
-Run `python evaluate_intents.py` to measure the 100-case intent/action/target
-set without executing any system commands. The report includes clarification
-rate and available local/cloud parser latency; disabled cloud fallback is
-reported as unavailable.
-
-## Anomaly detection (the ML component)
-
-Rather than a heavyweight model, `process_baselines` keeps a rolling
-average CPU% per process name. A new sample is flagged only once it both
-crosses an absolute threshold (default 50%) **and** exceeds several times
-its own historical baseline — this is what tells the difference between
-"Chrome always uses 40%" and "svchost.exe never uses more than 3% and is
-suddenly at 60%." Simple, explainable, and genuinely useful — a good
-foundation to later swap in an Isolation Forest or z-score model per your
-original ARIA-style plans without changing anything else.
-
-## Known limitations / what to check before demoing
-
-- **Login event field offsets** (`monitors/logins.py`) are based on current
-  Windows 10/11 `StringInserts` layout. If your build differs, events are
-  still stored, but `username`/`source_ip` may come back `None` — check a
-  few live rows against Event Viewer once and adjust the indices if needed.
-- **Network sniffer is off by default.** It's the most invasive monitor
-  (raw packets, needs Npcap + admin) — turn it on with
-  `CS_ENABLE_SNIFFER=true` once everything else is working.
-- **DNS queries from the sniffer aren't attributed to a PID** — correlating
-  a raw packet to a process requires OS-level socket-to-process mapping in
-  real time, which is a meaningfully bigger feature; noted as a clean next
-  step rather than silently faked.
-- Chrome/Edge history files are **copied before reading** to avoid the
-  "database is locked" error — if antivirus flags the temp copy, add an
-  exclusion for your temp directory.
-
-## Project structure
-
-```
-cybersentinel/
-├── main.py
-├── config.py
-├── db/            schema.py, database.py
-├── monitors/       processes, ports, usb, logins, browser, startup,
-│                  installed_software, services, scheduled_tasks,
-│                  filesystem, network, health
-├── query/          engine.py, offline.py, llm.py, sql_guard.py
-├── alerts/         notifier.py
-├── cli/            repl.py
-├── api/            server.py
-└── utils/          logger.py
+```bash
+python main.py --mode cli
 ```
 
-## Sample questions
+Start the web API and UI:
 
+```bash
+python main.py --mode api
 ```
+
+Then open:
+
+```text
+http://127.0.0.1:5055/
+```
+
+Run the monitors without an interface:
+
+```bash
+python main.py --mode daemon
+```
+
+## Example questions
+
+```text
 which process opened port 8080?
 did anyone try to login yesterday?
 what's talking to the internet right now?
 anything weird today?
 what did I install this week?
 who has been using my machine?
-is port 3000 safe?
-summarize today's activity
 ```
+
+## Environment configuration
+
+A sample configuration is included in `.env.example`. It defines settings for:
+
+- database path
+- API host and port
+- LLM endpoint and model choice
+- feature toggles
+- monitor intervals
+- alert thresholds
+- logging behavior
+
+If you do not want to use an LLM, CyberSentinel still runs in offline mode using
+its built-in logic and local rules.
+
+## Notes
+
+- The app is intended for personal/local use.
+- Some features depend on Windows-specific permissions and APIs.
+- The project is designed to fail gracefully: if a monitor is unavailable or a
+  dependency is missing, it logs a warning instead of crashing the rest of the
+  system.
+
+## License
+
+This project is distributed as-is for local security and monitoring use. Check
+your environment and legal requirements before running monitoring tools on any
+machine that is not yours or that you do not have permission to inspect.
