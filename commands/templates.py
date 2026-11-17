@@ -7,7 +7,8 @@ No raw shell strings are ever constructed from user/LLM output.
 
 Each template specifies:
   - id: unique identifier (used in LLM ↔ executor communication)
-  - tier: SAFE (read-only) or DESTRUCTIVE (modifies state)
+  - tier: SAFE (read-only), CREATE (non-overwriting creation), or
+    DESTRUCTIVE (modifies or replaces existing state)
   - cmd: list of command parts with {param} placeholders
   - params: ordered list of parameter names
   - description: human-readable (shown to user + fed to translator LLM)
@@ -187,6 +188,18 @@ TEMPLATES = {
             "read the file",
         ],
     },
+    "open_file": {
+        "tier": "DESTRUCTIVE",
+        "cmd": ["open", "{path}"],
+        "params": ["path"],
+        "validators": {"path": validate_path},
+        "description": "Open a file in its default Windows application",
+        "example_phrasings": [
+            "open C:\\Users\\me\\Documents\\report.pdf",
+            "open file \"C:\\Users\\me\\Documents\\project notes.docx\"",
+            "open file \"Desktop\\report.pdf\"",
+        ],
+    },
     "search_in_files": {
         "tier": "SAFE",
         "cmd": ["cmd", "/c", "findstr", "/s", "/i", "{term}", "{path}"],
@@ -227,26 +240,30 @@ TEMPLATES = {
 
     # ─── File/Folder Operations ─── DESTRUCTIVE ──────────────────
     "create_directory": {
-        "tier": "DESTRUCTIVE",
+        "tier": "CREATE",
         "cmd": ["cmd", "/c", "mkdir", "{path}"],
         "params": ["path"],
         "validators": {"path": validate_path},
         "description": "Create a new directory / folder (mkdir)",
         "example_phrasings": [
             "create a folder called test",
+            "create the folder project notes in Documents",
+            "make a folder named weekend plans on my Desktop",
             "mkdir new_project",
             "make a new directory",
             "create folder C:\\backup",
         ],
     },
     "create_file": {
-        "tier": "DESTRUCTIVE",
+        "tier": "CREATE",
         "cmd": ["file", "create", "{path}"],
         "params": ["path", "content"],
         "validators": {"path": validate_path, "content": validate_file_content},
         "description": "Create a new UTF-8 text file without overwriting an existing file",
         "example_phrasings": [
             "create a file named notes.txt in my Documents folder",
+            "make a notes file in Documents without quotes",
+            "create a python file in Downloads named 'hello.py'",
             "create report.json at C:\\temp with content {\"ok\": true}",
             "make a new .md file containing these notes",
         ],
@@ -265,7 +282,7 @@ TEMPLATES = {
     },
     "delete_file": {
         "tier": "DESTRUCTIVE",
-        "cmd": ["cmd", "/c", "del", "/p", "{path}"],
+        "cmd": ["cmd", "/c", "del", "/q", "{path}"],
         "params": ["path"],
         "validators": {"path": validate_path},
         "description": "Delete a file (del) — DESTRUCTIVE",
@@ -296,6 +313,7 @@ TEMPLATES = {
         "description": "Copy a file to a new location (copy / cp)",
         "example_phrasings": [
             "copy report.docx to my Desktop",
+            "copy project notes.txt into Documents",
             "cp config.ini to C:\\backup",
             "duplicate this file",
             "copy a file",
@@ -447,6 +465,9 @@ TEMPLATES = {
             "tasklist verbose",
             "detailed process list",
             "show processes with memory usage",
+            "what is using the most memory right now",
+            "show apps sorted by RAM use",
+            "find the biggest memory users",
         ],
     },
     "find_process": {
@@ -473,6 +494,9 @@ TEMPLATES = {
         "example_phrasings": [
             "kill notepad",
             "stop chrome",
+            "get rid of whatever is hogging my RAM",
+            "close the application using the most memory",
+            "stop whichever process is using the most CPU",
             "end task notepad.exe",
             "force close the process",
             "taskkill notepad",
@@ -841,6 +865,8 @@ TEMPLATES = {
         "example_phrasings": [
             "generate battery report",
             "battery health",
+            "tell me current PC battery health",
+            "how healthy is my laptop battery",
         ],
     },
     "battery_charging": {
@@ -894,6 +920,29 @@ TEMPLATES = {
 def get_template(template_id: str) -> dict | None:
     """Look up a template by ID. Returns None if not found."""
     return TEMPLATES.get(template_id)
+
+
+def get_command_tier(template_id: str, params: dict | None = None) -> str | None:
+    """Return the authoritative tier, including target-dependent creation rules."""
+    template = get_template(template_id)
+    if template is None:
+        return None
+    params = params or {}
+    if template_id == "create_file":
+        suffix = Path(str(params.get("path", ""))).suffix.casefold()
+        if suffix in {".exe", ".bat", ".cmd", ".ps1", ".psm1", ".vbs", ".msi", ".py", ".pyw"}:
+            return "DESTRUCTIVE"
+        return "CREATE"
+    if template_id == "copy_file":
+        destination = params.get("dest")
+        return (
+            "DESTRUCTIVE"
+            if params.get("overwrite") and destination and Path(str(destination)).exists()
+            else "CREATE"
+        )
+    if template_id == "create_directory":
+        return "CREATE"
+    return template["tier"]
 
 
 def build_command(template_id: str, params: dict) -> list[str]:

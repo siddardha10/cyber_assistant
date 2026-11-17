@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 import psutil
 
 from db import database as db
+from monitors.startup import normalize_startup_name
 
 _TEMPLATES = []
 
@@ -416,15 +417,74 @@ def _software(match, question):
     r"|run\s*at\s*(boot|startup|login)"
 )
 def _startup(match, question):
-    rows = db.get_recent("startup_entries", limit=25)
-    if not rows:
-        return "No startup entry changes recorded (baseline matches current state)."
+    question_lower = question.lower()
+    wants_new = any(word in question_lower for word in ("new", "added"))
+    wants_changes = wants_new or any(word in question_lower for word in ("changed", "change", "what changed"))
+    if wants_changes:
+        action_filter = "action = 'added'" if wants_new else "action IN ('added', 'removed')"
+        rows = db.run_readonly_query(
+            "SELECT * FROM startup_entries "
+            f"WHERE {action_filter} AND timestamp > "
+            "(SELECT value FROM monitor_state WHERE key = 'startup_baseline_complete') "
+            "ORDER BY timestamp DESC, id DESC LIMIT 100"
+        )
+        if not rows:
+            if wants_new:
+                return "No startup entries have been added since the baseline scan."
+            return "No startup entry changes have been recorded since the baseline scan."
+        if wants_new:
+            summary = f"{len(rows)} startup entr{'y' if len(rows) == 1 else 'ies'} added since the baseline scan."
+        else:
+            summary = f"{len(rows)} startup entry change(s) recorded since the baseline scan."
+    else:
+        baseline = db.run_readonly_query(
+            "SELECT value FROM monitor_state WHERE key = 'startup_baseline_complete'"
+        )
+        if baseline:
+            events = db.run_readonly_query(
+                "SELECT * FROM startup_entries WHERE timestamp >= ? ORDER BY id",
+                (baseline[0]["value"],),
+            )
+        else:
+            events = db.run_readonly_query(
+                "SELECT * FROM startup_entries ORDER BY id"
+            )
+        groups = {}
+        for row in events:
+            name = row.get("name") or "Unknown"
+            location = row.get("location") or ""
+            display_name = normalize_startup_name(name)
+            identity = (
+                f"{location.casefold()}:{display_name.casefold()}"
+                if location.startswith(("HKCU", "HKLM"))
+                else f"folder:{display_name.casefold()}"
+            )
+            action = row.get("action")
+            if action == "removed":
+                groups.setdefault(identity, {}).pop(name, None)
+            elif action == "observed":
+                groups[identity] = {name: row}
+            else:
+                groups.setdefault(identity, {})[name] = row
+        rows = []
+        for entries in groups.values():
+            if entries:
+                latest = list(entries.values())[-1]
+                latest["raw_names"] = sorted(entries)
+                rows.append(latest)
+        if not events:
+            return "Startup entries have not been scanned yet."
+        if not rows:
+            return "The startup scan is complete; no startup entries are currently registered."
+        summary = f"{len(rows)} distinct startup entr{'y' if len(rows) == 1 else 'ies'} currently registered."
+
     lines = [
-        f"  [{r.get('action','?')}] {r.get('name','?')} - "
-        f"{(r.get('command') or '?')[:55]}  ({(r.get('timestamp') or '')[:16]})"
-        for r in rows
+        f"  {normalize_startup_name(r.get('name') or 'Unknown')} - "
+        f"{(r.get('command') or '?')[:80]}  ({r.get('location') or 'unknown location'}; "
+        f"raw name(s): {', '.join(r.get('raw_names', [r.get('name') or 'Unknown']))})"
+        for r in rows[:30]
     ]
-    return f"{len(rows)} startup entry event(s):\n" + "\n".join(lines)
+    return summary + "\n" + "\n".join(lines)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

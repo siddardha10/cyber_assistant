@@ -15,15 +15,19 @@ Endpoints:
   GET  /api/history     recent query_logs rows
 """
 
+import os
 from pathlib import Path
 
+import requests
 from flask import Flask, request, jsonify, send_file, make_response
 from flask_cors import CORS
 
 import config
 from db import database as db
+from monitors import logins
 from query import engine
 from query.catalog import suggest as suggest_commands
+from query.web_fallback import search as web_search
 from utils.logger import get_logger
 
 log = get_logger("api.server")
@@ -83,23 +87,26 @@ def api_execute():
         return jsonify({"error": "Missing 'command_data'"}), 400
 
     template_id = command_data.get("template_id")
-    tier = command_data.get("tier")
     params = command_data.get("params", {})
     command_parts = command_data.get("command_parts")
     display_command = command_data.get("display_command")
     natural_input = command_data.get("natural_input", "")
 
-    if not template_id or not command_parts:
+    if not template_id or not command_parts or not isinstance(params, dict):
         return jsonify({"error": "Invalid command_data — missing template_id or command_parts"}), 400
 
-    if tier == "DESTRUCTIVE" and not confirmed:
-        return jsonify({"error": "DESTRUCTIVE commands require confirmed=true"}), 400
-
     # Re-validate the template exists and params are clean
-    from commands.templates import get_template, build_command
+    from commands.templates import get_template, build_command, get_command_tier
+    from commands.path_resolver import prepare_command_paths
     template = get_template(template_id)
     if template is None:
         return jsonify({"error": f"Unknown template: {template_id}"}), 400
+    params, path_error = prepare_command_paths(template_id, params)
+    if path_error:
+        return jsonify({"error": f"Command target validation failed: {path_error}"}), 400
+    tier = get_command_tier(template_id, params)
+    if tier == "DESTRUCTIVE" and not confirmed:
+        return jsonify({"error": "DESTRUCTIVE commands require confirmed=true"}), 400
 
     try:
         validated_parts = build_command(template_id, params)
@@ -118,6 +125,41 @@ def api_execute():
         confirmed=confirmed,
     )
     return jsonify(result)
+
+
+@app.route("/api/open-location", methods=["POST"])
+def api_open_location():
+    body = request.get_json(silent=True) or {}
+    location = body.get("path")
+    if not isinstance(location, str) or not location.strip():
+        return jsonify({"error": "Missing location path"}), 400
+    target = Path(location).expanduser().resolve()
+    if not target.is_dir():
+        return jsonify({"error": "The requested location does not exist"}), 404
+    startfile = getattr(os, "startfile", None)
+    if startfile is None:
+        return jsonify({"error": "Opening locations is supported only on Windows"}), 501
+    try:
+        startfile(str(target))
+    except OSError as error:
+        log.exception("Could not open local location %s", target)
+        return jsonify({"error": f"Could not open location: {error}"}), 500
+    return jsonify({"opened": True, "path": str(target)})
+
+
+@app.route("/api/web-search", methods=["POST"])
+def api_web_search():
+    body = request.get_json(silent=True) or {}
+    if body.get("approved") is not True:
+        return jsonify({"error": "Explicit approval is required before web search"}), 400
+    try:
+        results = web_search(body.get("category", ""))
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    except requests.RequestException as error:
+        log.exception("Approval-gated web search failed.")
+        return jsonify({"error": f"Web search failed: {error}"}), 502
+    return jsonify({"results": results})
 
 
 @app.route("/api/suggest", methods=["GET"])
@@ -164,6 +206,7 @@ def api_status():
         "open_ports": open_ports_rows[0]["c"] if open_ports_rows else 0,
         "alerts_24h": alerts_24h[0]["c"] if alerts_24h else 0,
         "llm_enabled": config.LLM_ENABLED,
+        "login_monitor": logins.get_prerequisite_status(),
     })
 
 
@@ -195,11 +238,24 @@ def api_alerts():
     # Pass active=0 to include dismissed rows (history / debugging).
     active_only = request.args.get("active", "1") != "0"
     if not active_only:
-        return jsonify(db.get_recent("alerts", limit=limit))
+        rows = db.run_readonly_query(
+            """
+            SELECT *, CASE
+                WHEN COALESCE(acknowledged, 0) = 1 AND COALESCE(status, 'OPEN') = 'OPEN'
+                THEN 'ACKNOWLEDGED' ELSE COALESCE(status, 'OPEN')
+            END AS status
+            FROM alerts
+            ORDER BY timestamp DESC, id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        return jsonify(rows)
     rows = db.run_readonly_query(
         """
-        SELECT * FROM alerts
+        SELECT *, COALESCE(status, 'OPEN') AS status FROM alerts
         WHERE COALESCE(acknowledged, 0) = 0
+          AND COALESCE(status, 'OPEN') = 'OPEN'
         ORDER BY timestamp DESC, id DESC
         LIMIT ?
         """,
@@ -213,6 +269,13 @@ def api_acknowledge_alert(alert_id):
     if not db.acknowledge_alert(alert_id):
         return jsonify({"error": "Alert not found"}), 404
     return jsonify({"ok": True, "id": alert_id, "acknowledged": 1})
+
+
+@app.route("/api/alerts/<int:alert_id>/resolve", methods=["POST"])
+def api_resolve_alert(alert_id):
+    if not db.resolve_alert(alert_id):
+        return jsonify({"error": "Alert not found"}), 404
+    return jsonify({"ok": True, "id": alert_id, "status": "RESOLVED"})
 
 
 @app.route("/api/history", methods=["GET"])

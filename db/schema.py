@@ -102,7 +102,7 @@ SCHEMA_STATEMENTS = [
         name TEXT,
         command TEXT,
         location TEXT,
-        action TEXT  -- 'added', 'removed'
+        action TEXT  -- 'baseline', 'added', 'removed', or 'observed'
     );
     """,
 
@@ -183,10 +183,18 @@ SCHEMA_STATEMENTS = [
         reason TEXT,
         source_table TEXT,
         source_id INTEGER,
+        status TEXT DEFAULT 'OPEN',
         acknowledged INTEGER DEFAULT 0,
         dedup_key TEXT,
         occurrence_count INTEGER DEFAULT 1,
         last_seen TEXT
+    );
+    """,
+
+    """
+    CREATE TABLE IF NOT EXISTS monitor_state (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
     );
     """,
 
@@ -240,6 +248,17 @@ SCHEMA_STATEMENTS = [
         source TEXT  -- 'offline' or 'llm'
     );
     """,
+
+    """
+    CREATE TABLE IF NOT EXISTS intent_corrections (
+        phrase_normalized TEXT PRIMARY KEY,
+        action_id TEXT NOT NULL,
+        target_type TEXT,
+        target_phrase TEXT,
+        correction_count INTEGER NOT NULL DEFAULT 1,
+        updated_at TEXT NOT NULL
+    );
+    """,
 ]
 
 INDEX_STATEMENTS = [
@@ -270,6 +289,7 @@ INDEX_STATEMENTS = [
 # failures (column already exists) are swallowed.
 MIGRATIONS = [
     ("alerts", "reason", "TEXT"),
+    ("alerts", "status", "TEXT DEFAULT 'OPEN'"),
     ("alerts", "dedup_key", "TEXT"),
     ("alerts", "occurrence_count", "INTEGER DEFAULT 1"),
     ("alerts", "last_seen", "TEXT"),
@@ -299,7 +319,7 @@ scheduled_tasks(id, timestamp, name, path, next_run, action)
 filesystem_events(id, timestamp, path, event_type, watched_dir, size_bytes)
 network_events(id, timestamp, src_ip, dst_ip, protocol, size, pid, event_type)
 dns_queries(id, timestamp, domain, pid, process_name)
-alerts(id, timestamp, category, severity, message, reason, source_table, source_id, acknowledged, dedup_key, occurrence_count, last_seen)
+alerts(id, timestamp, category, severity, message, reason, source_table, source_id, status, acknowledged, dedup_key, occurrence_count, last_seen)
 system_health(id, timestamp, cpu_pct, mem_pct, disk_pct)
 process_baselines(process_name, avg_cpu_pct, sample_count, updated_at)
 command_logs(id, timestamp, natural_input, translated_command, template_id, tier, confirmed, stdout, stderr, exit_code, success)

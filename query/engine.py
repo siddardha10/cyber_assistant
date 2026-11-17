@@ -35,6 +35,11 @@ def ask(question: str, context: list | None = None) -> dict:
             "source": "none", "sql": None, "intent": None,
         }
 
+    # Recognized local commands must bypass data-query intent classification.
+    from commands.translator import is_local_path_request
+    if is_local_path_request(question):
+        return llm.handle_system_command(question, context)
+
     # ── Fast/free cache: try offline templates for exact-match phrasings ──
     offline_answer = offline.try_offline(question)
     if offline_answer:

@@ -39,7 +39,7 @@ Some monitors need extra setup:
 
 | Monitor | Requirement |
 |---|---|
-| Logins | Run as **Administrator**; Windows Security auditing must be enabled |
+| Logins | Install `requirements.txt`, run as **Administrator**, and enable both success and failure auditing with `auditpol /set /subcategory:"Logon" /success:enable /failure:enable` |
 | USB | `pip install wmi pywin32` |
 | Services / Startup / Software / Scheduled tasks | Windows only, uses `winreg` / `psutil.win_service_iter` / `schtasks` |
 | Network sniffer (optional, off by default) | `pip install scapy`, Npcap installed, Administrator |
@@ -74,6 +74,31 @@ The UI talks to `/api/ask`, `/api/status`, `/api/feed`, `/api/alerts`,
 3. **`query/sql_guard.py`** — every LLM-generated query is validated before
    it ever touches the database: SELECT-only, single statement, whitelisted
    tables only. This is a hard security boundary, not a suggestion to the model.
+
+System actions use goal-first JSON parsing and retrieve at most five actions
+from the command registry. The local embedding model is configured with
+`CS_OLLAMA_EMBED_MODEL` (default `nomic-embed-text`); pull it separately with
+`ollama pull nomic-embed-text`. If it is unavailable, local lexical and typo
+similarity matching remains available. A low-confidence local parse can retry
+against an explicitly configured HTTPS OpenAI-compatible cloud endpoint;
+cloud retry is disabled by default and strips common machine identifiers.
+
+Action tiers are `SAFE`, `CREATE`, and `DESTRUCTIVE`. New folders, ordinary
+text files, and copies to non-existing destinations are validated and verified
+before reporting success. Executables/scripts and state-changing operations
+remain click-to-confirm. Existing targets and protected Windows locations are
+never silently overwritten or modified. Unknown local requests may offer an
+approval-gated web fallback using a fixed, generic search query; the original
+message and target names are not sent.
+Explicit application launch requests such as `open notepad` or
+`launch calculator` are routed locally, resolved against installed
+applications, and run through the validated command registry without
+requiring the LLM.
+
+Run `python evaluate_intents.py` to measure the 100-case intent/action/target
+set without executing any system commands. The report includes clarification
+rate and available local/cloud parser latency; disabled cloud fallback is
+reported as unavailable.
 
 ## Anomaly detection (the ML component)
 

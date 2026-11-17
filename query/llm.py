@@ -22,6 +22,7 @@ Conversation context: the UI sends recent Q&A turns so follow-up questions
 
 import json
 import re
+from pathlib import Path
 
 import requests
 
@@ -115,7 +116,12 @@ follow-ups like "what about yesterday?" or "do that for port 443 too".
 
 Respond with ONLY a JSON object:
 {"intent": "<DATA_QUERY|SYSTEM_COMMAND|CONVERSATIONAL|OUT_OF_SCOPE>", \
+"goal": "<short verb category>", \
+"target_phrase": "<target words or empty string>", \
+"target_type": "<process|service|application|file|folder|drive|port|adapter|host|none>", \
+"slots": {}, \
 "confidence": <0.0 to 1.0>, \
+"interpretation": "<one concise sentence>", \
 "reasoning": "<one short sentence>"}
 
 IMPORTANT DISTINCTIONS:
@@ -180,7 +186,12 @@ _JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
 # Helpers
 # ═══════════════════════════════════════════════════════════════════
 
-def _call_llm(system: str, messages: list, max_tokens: int = 500) -> str:
+def _call_llm(
+    system: str,
+    messages: list,
+    max_tokens: int = 500,
+    json_mode: bool = False,
+) -> str:
     """
     Call the local Ollama instance (OpenAI-compatible chat completions endpoint).
     Prepends the system prompt as a system message.
@@ -197,6 +208,8 @@ def _call_llm(system: str, messages: list, max_tokens: int = 500) -> str:
         "max_tokens": max_tokens,
         "stream": False,
     }
+    if json_mode:
+        payload["response_format"] = {"type": "json_object"}
     headers = {
         "Content-Type": "application/json",
     }
@@ -273,13 +286,17 @@ def classify_intent(question: str, context: list | None = None) -> dict:
         raw = _call_llm(
             _CLASSIFIER_SYSTEM_PROMPT,
             _build_context_messages(question, context),
-            max_tokens=150,
+            max_tokens=250,
+            json_mode=True,
         )
     except Exception:
         log.exception("Intent classifier call failed")
         return {"intent": None, "confidence": 0, "reasoning": "LLM call failed"}
 
-    parsed = _extract_json(raw)
+    try:
+        parsed = json.loads(raw.strip())
+    except json.JSONDecodeError:
+        parsed = None
     if parsed is None:
         log.warning("Classifier returned unparseable output: %s", raw[:200])
         return {"intent": None, "confidence": 0, "reasoning": "Unparseable classifier output"}
@@ -289,10 +306,48 @@ def classify_intent(question: str, context: list | None = None) -> dict:
         log.warning("Classifier returned unknown intent: %s", intent)
         return {"intent": None, "confidence": 0, "reasoning": f"Unknown intent: {intent}"}
 
+    confidence = parsed.get("confidence", 0)
+    if (
+        not isinstance(confidence, (int, float))
+        or isinstance(confidence, bool)
+        or not 0 <= confidence <= 1
+    ):
+        log.warning("Classifier returned invalid confidence: %r", confidence)
+        return {"intent": None, "confidence": 0, "reasoning": "Invalid confidence"}
+    if intent == "OUT_OF_SCOPE":
+        return {
+            "intent": intent,
+            "confidence": float(confidence),
+            "reasoning": parsed.get("reasoning", "Request is outside CyberSentinel's scope."),
+            "goal": "",
+            "target_phrase": "",
+            "target_type": "none",
+            "slots": {},
+            "interpretation": "",
+        }
+    target_types = {
+        "process", "service", "application", "file", "folder",
+        "drive", "port", "adapter", "host", "none",
+    }
+    if (
+        not isinstance(parsed.get("goal"), str)
+        or not isinstance(parsed.get("target_phrase"), str)
+        or parsed.get("target_type") not in target_types
+        or not isinstance(parsed.get("slots"), dict)
+        or not isinstance(parsed.get("interpretation"), str)
+        or not isinstance(parsed.get("reasoning"), str)
+    ):
+        log.warning("Classifier returned an incomplete goal-first JSON object.")
+        return {"intent": None, "confidence": 0, "reasoning": "Invalid goal-first output"}
     return {
         "intent": intent,
-        "confidence": parsed.get("confidence", 0.5),
+        "confidence": float(confidence),
         "reasoning": parsed.get("reasoning", ""),
+        "goal": parsed.get("goal", ""),
+        "target_phrase": parsed.get("target_phrase", ""),
+        "target_type": parsed.get("target_type", "none"),
+        "slots": parsed.get("slots", {}),
+        "interpretation": parsed.get("interpretation", ""),
     }
 
 
@@ -458,11 +513,38 @@ def handle_system_command(question: str, context: list | None = None) -> dict:
     from commands.translator import translate
     from commands.executor import execute
 
-    result = translate(question)
+    result = translate(question, context)
 
     if not result["success"]:
         # Distinguish "unsupported" (no matching template) from other errors
         error_msg = result["error"] or "I couldn't translate that into a command."
+        if result.get("clarification"):
+            candidates = result.get("candidates") or []
+            choices = [candidate.get("name") or candidate.get("value") for candidate in candidates]
+            choices = [choice for choice in choices if choice]
+            choice_text = "\n".join(f"{index + 1}. {choice}" for index, choice in enumerate(choices[:5]))
+            answer = error_msg
+            if choice_text:
+                answer += "\n" + choice_text
+            return {
+                "answer": answer,
+                "sql": None,
+                "source": "clarification",
+                "intent": "SYSTEM_COMMAND",
+                "options": choices[:5],
+                "command_data": None,
+            }
+        if result.get("web_fallback_category"):
+            from query.web_fallback import get_search_query
+            return {
+                "answer": "I couldn't match this to a local action. You can approve a web search using a generic query; no message text, paths, or target names will be sent.",
+                "sql": None,
+                "source": "web_fallback_pending",
+                "intent": "SYSTEM_COMMAND",
+                "web_fallback_category": result["web_fallback_category"],
+                "sanitized_query": get_search_query(result["web_fallback_category"]),
+                "command_data": None,
+            }
         is_unsupported = error_msg.lower().startswith("unsupported")
         return {
             "answer": error_msg,
@@ -481,10 +563,44 @@ def handle_system_command(question: str, context: list | None = None) -> dict:
         "command_parts": result["command_parts"],
         "is_network": result.get("is_network", False),
         "natural_input": question,
+        "confidence": result.get("confidence", 1.0),
+        "goal": result.get("goal"),
+        "target_phrase": result.get("target_phrase"),
+        "target_type": result.get("target_type"),
+        "interpretation": result.get("interpretation"),
     }
 
-    # SAFE commands: execute immediately and return output
-    if result["tier"] == "SAFE":
+    confidence = result.get("confidence", 1.0)
+    if result["tier"] != "DESTRUCTIVE" and confidence < 0.82:
+        if confidence < 0.55:
+            choices = result.get("candidates") or []
+            action_names = [
+                candidate.get("description") or candidate.get("action_id")
+                for candidate in choices[:4]
+            ]
+            question_text = "What did you mean?"
+            if action_names:
+                question_text += "\n" + "\n".join(
+                    f"{index + 1}. {name}" for index, name in enumerate(action_names)
+                )
+            return {
+                "answer": question_text,
+                "sql": None,
+                "source": "clarification",
+                "intent": "SYSTEM_COMMAND",
+                "options": action_names,
+                "command_data": None,
+            }
+        return {
+            "answer": f"I understood: {result.get('interpretation') or result['description']}",
+            "sql": None,
+            "source": "command_review",
+            "intent": "SYSTEM_COMMAND",
+            "command_data": command_data,
+        }
+
+    # SAFE and CREATE commands execute immediately after validation.
+    if result["tier"] in {"SAFE", "CREATE"}:
         exec_result = execute(
             template_id=result["template_id"],
             tier=result["tier"],
@@ -500,7 +616,19 @@ def handle_system_command(question: str, context: list | None = None) -> dict:
         failure_reason = exec_result.get("failure_reason")
 
         if exec_result["success"]:
-            answer = f"Executed: `{result['display_command']}`\n\n{output.strip()}"
+            if result["tier"] == "CREATE":
+                answer = f"Created: `{exec_result.get('created_path') or result['params'].get('path') or result['params'].get('dest')}`"
+                created_path = Path(
+                    exec_result.get("created_path")
+                    or result["params"].get("path")
+                    or result["params"].get("dest")
+                )
+                command_data["open_location"] = str(
+                    created_path if result["template_id"] == "create_directory"
+                    else created_path.parent
+                )
+            else:
+                answer = f"Executed: `{result['display_command']}`\n\n{output.strip()}"
         else:
             # For network commands, show the specific failure reason prominently
             if failure_reason:
@@ -520,10 +648,11 @@ def handle_system_command(question: str, context: list | None = None) -> dict:
             "command_data": command_data,
         }
 
-    # DESTRUCTIVE commands: return the command for confirmation, do NOT execute
+    # DESTRUCTIVE commands: return the exact resolved target for click-to-confirm.
     else:
         answer = (
             f"⚠️ This is a **DESTRUCTIVE** command that will modify your system.\n\n"
+            f"I understood: {result.get('interpretation') or result['description']}\n"
             f"Command: `{result['display_command']}`\n"
             f"Action: {result['description']}\n\n"
             f"Please confirm to execute, or cancel."
@@ -554,9 +683,26 @@ def ask(question: str, context: list | None = None) -> dict:
     intent = classification.get("intent")
 
     if intent is None:
-        # Classification failed — fall back to DATA_QUERY as the safest default
-        log.warning("Intent classification failed, falling back to DATA_QUERY")
-        return handle_data_query(question, context)
+        log.warning("Intent classification failed; asking for clarification.")
+        return {
+            "answer": "Do you want me to inspect this machine, run an action, or answer a conversational question?",
+            "sql": None,
+            "source": "clarification",
+            "intent": None,
+            "options": ["Inspect this machine", "Run a local action", "Something else"],
+        }
+
+    if intent == "OUT_OF_SCOPE":
+        return handle_out_of_scope(question)
+
+    if classification["confidence"] < 0.55:
+        return {
+            "answer": "I’m not sure what you want me to do. Do you want a data lookup, a local action, or something else?",
+            "sql": None,
+            "source": "clarification",
+            "intent": intent,
+            "options": ["Data lookup", "Local action", "Something else"],
+        }
 
     log.info("Intent classified as %s (%.0f%% confidence): %s",
              intent, classification.get("confidence", 0) * 100,

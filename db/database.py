@@ -155,6 +155,7 @@ def insert_alert(category: str, severity: str, message: str, source_table: str =
         "reason": reason,
         "source_table": source_table,
         "source_id": source_id,
+        "status": "OPEN",
         "acknowledged": 0,
         "dedup_key": dedup_key,
         "occurrence_count": 1,
@@ -172,7 +173,25 @@ def acknowledge_alert(alert_id: int) -> bool:
         row = conn.execute("SELECT id FROM alerts WHERE id = ?", (int(alert_id),)).fetchone()
         if row is None:
             return False
-        conn.execute("UPDATE alerts SET acknowledged = 1 WHERE id = ?", (int(alert_id),))
+        conn.execute(
+            "UPDATE alerts SET acknowledged = 1, status = 'ACKNOWLEDGED' WHERE id = ?",
+            (int(alert_id),),
+        )
+        conn.commit()
+    return True
+
+
+def resolve_alert(alert_id: int) -> bool:
+    """Mark an alert resolved without deleting its audit history."""
+    conn = get_connection()
+    with _lock:
+        row = conn.execute("SELECT id FROM alerts WHERE id = ?", (int(alert_id),)).fetchone()
+        if row is None:
+            return False
+        conn.execute(
+            "UPDATE alerts SET acknowledged = 1, status = 'RESOLVED' WHERE id = ?",
+            (int(alert_id),),
+        )
         conn.commit()
     return True
 
@@ -242,3 +261,39 @@ def get_process_baseline(process_name: str):
         (process_name,),
     )
     return rows[0] if rows else None
+
+
+def get_intent_correction(phrase_normalized: str) -> dict | None:
+    conn = get_connection()
+    with _lock:
+        row = conn.execute(
+            "SELECT action_id, target_type, target_phrase FROM intent_corrections "
+            "WHERE phrase_normalized = ?",
+            (phrase_normalized,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def save_intent_correction(
+    phrase_normalized: str,
+    action_id: str,
+    target_type: str | None,
+    target_phrase: str | None,
+) -> None:
+    conn = get_connection()
+    with _lock:
+        conn.execute(
+            """
+            INSERT INTO intent_corrections
+                (phrase_normalized, action_id, target_type, target_phrase, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(phrase_normalized) DO UPDATE SET
+                action_id = excluded.action_id,
+                target_type = excluded.target_type,
+                target_phrase = excluded.target_phrase,
+                correction_count = intent_corrections.correction_count + 1,
+                updated_at = excluded.updated_at
+            """,
+            (phrase_normalized, action_id, target_type, target_phrase, now_iso()),
+        )
+        conn.commit()

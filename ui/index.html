@@ -32,6 +32,55 @@
     --font-body:'Inter', sans-serif;
     --font-mono:'JetBrains Mono', monospace;
   }
+
+  async function approveWebSearch(searchId){
+    const msg=document.getElementById(searchId+'_msg');
+    const panel=msg&&msg.querySelector('.confirm-panel');
+    if(!msg||!msg._webCategory||!panel) return;
+    panel.innerHTML='<p>Searching the web with the approved generic query…</p>';
+    try{
+      const response=await fetch(`${API}/api/web-search`,{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({approved:true,category:msg._webCategory})
+      });
+      const data=await response.json();
+      if(!response.ok) throw new Error(data.error||`HTTP ${response.status}`);
+      const results=data.results||[];
+      panel.innerHTML=results.length
+        ?results.map(item=>{
+          const safeUrl=/^https?:\/\//i.test(item.url||'')?item.url:'#';
+          return `<div class="data-row"><a href="${esc(safeUrl)}" target="_blank" rel="noopener noreferrer">${esc(item.title||'Search result')}</a>`
+            +`${item.snippet?`<div>${esc(item.snippet)}</div>`:''}</div>`;
+        }).join('')
+        :'<p>No search results were returned.</p>';
+    }catch(error){
+      panel.innerHTML=`<p class="cmd-status failure">Web search failed: ${esc(error.message)}</p>`;
+    }
+  }
+  else if(source==='clarification'){
+    extra=`<span class="source-badge">CLARIFY</span>`;
+    if(options&&options.length){
+      bodyHtml+=`<div class="quick-chips">${options.map((option,index)=>`<button class="qchip" onclick="selectClarification(this,${index})">${esc(option)}</button>`).join('')}</div>`;
+      d._clarificationOptions=options;
+    }
+  }
+  else if(source==='web_fallback_pending'){
+    const searchId='web_'+Date.now();
+    extra=`<span class="source-badge">WEB SEARCH · APPROVAL REQUIRED</span>`;
+    bodyHtml=`<div class="confirm-panel">`
+      +`<div class="confirm-panel-title" style="color:var(--teal)">Optional web-assisted fallback</div>`
+      +`<p>Only a generic Windows help query will be sent. Your original message and local target details are not shared.</p>`
+      +`<div class="cmd-block">${esc(sanitizedQuery||'Windows system administration help')}</div>`
+      +`<div class="confirm-actions">`
+      +`<button class="confirm-btn execute" style="background:var(--teal);color:#03211D" id="${searchId}" onclick="approveWebSearch('${searchId}')">Approve search</button>`
+      +`<button class="confirm-btn cancel" onclick="cancelCommand('${searchId}')">Cancel</button>`
+      +`</div></div>`;
+    d._webCategory=webCategory||'general';
+    d.id=searchId+'_msg';
+  }
+  .cmd-status{font-weight:600;font-size:13px;}
+  .cmd-status.success{color:var(--teal);}
+  .cmd-status.failure{color:var(--red);}
   *{margin:0;padding:0;box-sizing:border-box;}
   html,body{height:100%;}
   body{
@@ -42,6 +91,36 @@
     background-image:
       radial-gradient(circle at 15% 0%, rgba(45,212,191,0.06), transparent 40%),
       radial-gradient(circle at 85% 100%, rgba(245,166,35,0.04), transparent 40%);
+  }
+
+  function changeCommand(){
+    inputBox.value='I meant ';
+    inputBox.focus();
+    autoGrow(inputBox);
+  }
+
+  function selectClarification(button,index){
+    const msg=button.closest('.msg');
+    const option=msg&&msg._clarificationOptions&&msg._clarificationOptions[index];
+    if(option) sendQuick(option);
+  }
+
+  async function openLocation(buttonId){
+    const msg=document.getElementById(buttonId+'_msg');
+    if(!msg||!msg._openLocation) return;
+    const button=document.getElementById(buttonId);
+    if(button) button.disabled=true;
+    try{
+      const response=await fetch(`${API}/api/open-location`,{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({path:msg._openLocation})
+      });
+      const result=await response.json();
+      if(!response.ok) throw new Error(result.error||`HTTP ${response.status}`);
+      if(button) button.textContent='Location opened';
+    }catch(error){
+      if(button){button.disabled=false;button.textContent=`Could not open: ${error.message}`;}
+    }
   }
   ::selection{background:var(--teal-glow);color:var(--text-hi);}
   ::-webkit-scrollbar{width:6px;height:6px;}
@@ -102,8 +181,12 @@
   .monitor-val{font-family:var(--font-mono);font-size:10.5px;color:var(--text-dim);}
 
   /* chat history sessions */
-  .history-list{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:2px;}
+  .history-list{
+    flex:0 1 40vh;height:40vh;min-height:120px;max-height:360px;
+    overflow-y:auto;display:flex;flex-direction:column;gap:2px;
+  }
   .history-item{
+    flex:0 0 auto;min-height:48px;
     padding:8px 8px 6px;border-radius:6px;font-size:12px;
     color:var(--text-mid);cursor:pointer;
     overflow:hidden;
@@ -180,6 +263,7 @@
   .threat-tooltip.pinned{display:block;}
   @keyframes tooltipIn{from{opacity:0;transform:translateY(-4px);}to{opacity:1;transform:translateY(0);}}
   .threat-tooltip-title{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
     font-family:var(--font-display);font-weight:600;font-size:12px;
     color:var(--text-hi);margin-bottom:8px;
   }
@@ -196,6 +280,14 @@
   .threat-tooltip-sev.high{color:var(--red);background:var(--red-glow);}
   .threat-tooltip-sev.med{color:var(--amber);background:var(--amber-glow);}
   .threat-tooltip-sev.low{color:var(--teal);background:var(--teal-glow);}
+  .alert-status{
+    display:inline-flex;align-items:center;
+    font-family:var(--font-mono);font-size:8.5px;font-weight:600;
+    padding:2px 6px;border-radius:4px;letter-spacing:.3px;flex-shrink:0;
+  }
+  .alert-status.open{color:var(--red);background:var(--red-glow);}
+  .alert-status.acknowledged{color:var(--amber);background:var(--amber-glow);}
+  .alert-status.resolved{color:var(--teal);background:var(--teal-glow);}
   .threat-tooltip-msg{color:var(--text-mid);}
   .threat-tooltip-occ{color:var(--amber);font-family:var(--font-mono);font-size:9.5px;font-weight:600;}
   .threat-tooltip-why{color:var(--text-dim);font-size:10.5px;line-height:1.4;margin-top:3px;padding-left:1px;}
@@ -209,6 +301,18 @@
     border-radius:6px;padding:2px 7px;cursor:pointer;flex-shrink:0;
   }
   .threat-dismiss:hover{border-color:var(--teal);color:var(--teal);}
+  .threat-fix{
+    font-family:var(--font-mono);font-size:9.5px;letter-spacing:.3px;
+    background:var(--teal-glow);border:1px solid rgba(45,212,191,.3);color:var(--teal);
+    border-radius:6px;padding:2px 7px;cursor:pointer;flex-shrink:0;
+  }
+  .threat-fix:hover{background:var(--teal);color:#03211D;}
+  .alert-history-toggle{
+    margin:0 0 7px;padding:4px 7px;border-radius:5px;
+    background:transparent;border:1px solid var(--line);color:var(--text-dim);
+    font:10px var(--font-mono);cursor:pointer;
+  }
+  .alert-history-toggle:hover{border-color:var(--teal-dim);color:var(--teal);}
 
   /* chat scroll */
   .chat-scroll{
@@ -244,6 +348,13 @@
     margin:1px 0;line-height:1.4;
   }
   .data-section{display:flex;flex-direction:column;gap:1px;margin:7px 0 5px;}
+  .answer-details{
+    margin-top:8px;border:1px solid var(--line-soft);border-radius:8px;
+    background:rgba(10,14,19,.45);padding:7px 10px;
+  }
+  .answer-details summary{
+    cursor:pointer;color:var(--text-dim);font-size:11px;user-select:none;
+  }
 
   /* source badge */
   .source-badge{
@@ -278,6 +389,7 @@
   }
   .cmd-tier.safe{color:var(--teal);background:var(--teal-glow);}
   .cmd-tier.destructive{color:var(--red);background:var(--red-glow);}
+  .cmd-tier.create{color:#7dd3fc;background:rgba(14,165,233,0.14);}
 
   /* ── destructive confirmation panel ── */
   .confirm-panel{
@@ -471,6 +583,8 @@
   .feed-text{color:var(--text-mid);line-height:1.4;word-break:break-word;font-size:11px;}
   .feed-text b{color:var(--text-hi);font-weight:500;}
   .feed-text .tag{font-family:var(--font-mono);color:var(--text-dim);}
+  .feed-detail{margin-top:3px;color:var(--text-dim);font-size:10px;}
+  .feed-detail summary{cursor:pointer;color:var(--text-dim);}
 
   /* offline toast */
   .api-toast{
@@ -572,7 +686,11 @@
            onclick="toggleThreatTooltip(event)" title="Click to pin alert details">
         <span class="bar"></span><span id="threatText">THREAT LEVEL: LOW</span>
         <div class="threat-tooltip" id="threatTooltip" onclick="event.stopPropagation()">
-          <div class="threat-tooltip-title">Active Alerts (24h)</div>
+          <div class="threat-tooltip-title">
+            <span id="alertSectionTitle">OPEN Alerts (24h)</span>
+            <button type="button" class="alert-history-toggle" id="alertHistoryToggle"
+                    onclick="toggleAlertHistory(event)">Show history</button>
+          </div>
           <div id="threatTooltipBody">
             <div class="threat-tooltip-empty">No alerts — system is clean.</div>
           </div>
@@ -649,6 +767,8 @@ let apiOnline = true;
 let feedSeen = new Set();
 let currentSessionId = null;
 let viewingHistory = false;  /* true when viewing a past session (read-only) */
+let showAlertHistory = false;
+let loginMonitorStatus = null;
 
 /* ── session storage ── */
 function getSessions(){
@@ -789,8 +909,7 @@ function setOnline(on){
 }
 
 /* ── text → styled HTML ── */
-function renderAnswer(text){
-  const lines = text.split('\n');
+function renderAnswerLines(lines){
   let html='', inSection=false;
   for(const raw of lines){
     const tr=raw.trim();
@@ -806,6 +925,19 @@ function renderAnswer(text){
   }
   if(inSection) html+='</div>';
   return html;
+}
+
+function renderAnswer(text){
+  const lines=text.split('\n');
+  if(lines.filter(line=>line.trim()).length<2) return renderAnswerLines(lines);
+  const firstIndex=lines.findIndex(line=>line.trim());
+  const summary=lines[firstIndex];
+  const detailLines=lines.filter((_,index)=>index!==firstIndex);
+  const detailCount=detailLines.filter(line=>line.trim()).length;
+  return renderAnswerLines([summary])
+    +`<details class="answer-details"><summary>Show details (${detailCount} lines)</summary>`
+    +renderAnswerLines(detailLines)
+    +`</details>`;
 }
 
 /* ── chat ── */
@@ -827,7 +959,7 @@ function appendTyping(){
 
 function removeTyping(){ const t=document.getElementById('typing'); if(t)t.remove(); }
 
-function appendAI(text, source, commandData){
+function appendAI(text, source, commandData, options, webCategory, sanitizedQuery){
   removeTyping();
   const d=document.createElement('div');
   d.className='msg ai';
@@ -837,21 +969,50 @@ function appendAI(text, source, commandData){
   /* ── Command response (SYSTEM_COMMAND intent) ── */
   if(source==='command' && commandData){
     const tier=commandData.tier||'SAFE';
-    const tierClass=tier==='DESTRUCTIVE'?'destructive':'safe';
+    const tierClass=tier==='DESTRUCTIVE'?'destructive':(tier==='CREATE'?'create':'safe');
     const cmd=commandData.display_command||'';
     const exec=commandData.execution;
-    extra=`<span class="source-badge cmd">\u26a1 RUN</span><span class="cmd-tier ${tierClass}">${tier}</span>`;
-    bodyHtml=`<p>Executed:</p><div class="cmd-block">${esc(cmd)}</div>`;
-    /* Show specific failure reason prominently for network commands */
-    if(exec && exec.failure_reason){
-      bodyHtml+=`<div class="cmd-failure">\u26a0 ${esc(exec.failure_reason)}</div>`;
+    const succeeded=Boolean(exec&&exec.success);
+    const statusText=succeeded?(tier==='CREATE'?'Created successfully':'Command succeeded'):'Command failed';
+    const stdout=exec&&exec.stdout?String(exec.stdout):'';
+    const stderr=exec&&exec.stderr?String(exec.stderr):'';
+    const outputLines=(stdout+'\n'+stderr).split('\n').filter(line=>line.trim()).length;
+    extra=`<span class="source-badge ${succeeded?'cmd':'err'}">\u26a1 ${succeeded?'SUCCESS':'FAILURE'}</span><span class="cmd-tier ${tierClass}">${tier}</span>`;
+    bodyHtml=`<p class="cmd-status ${succeeded?'success':'failure'}">${statusText}`
+      +`${exec&&exec.exit_code!==null&&exec.exit_code!==undefined?` (exit code ${esc(exec.exit_code)}).`:'.'}</p>`
+      +(tier==='CREATE'
+        ?`<p>Command constructed:</p><div class="cmd-block">${esc(cmd)}</div>`
+        :`<p>${outputLines} output line(s). Full command and output are available below.</p>`)
+      +`<details class="answer-details"><summary>Show raw output</summary>`;
+    if(exec&&exec.failure_reason) bodyHtml+=`<div class="cmd-failure">${esc(exec.failure_reason)}</div>`;
+    if(succeeded && tier==='CREATE' && exec.created_path){
+      const creationVerb=commandData.template_id==='create_directory'?'folder':'item';
+      bodyHtml+=`<p>Creating ${creationVerb}</p><p><b>Created:</b> ${esc(exec.created_path)}</p>`;
     }
-    if(exec && exec.stdout){
-      bodyHtml+=`<div class="cmd-output">${esc(exec.stdout)}</div>`;
+    if(stdout) bodyHtml+=`<div class="cmd-output">${esc(stdout)}</div>`;
+    if(stderr) bodyHtml+=`<div class="cmd-output" style="border-color:rgba(255,84,112,0.3);color:var(--red)">${esc(stderr)}</div>`;
+    bodyHtml+=`</details>`;
+    if(succeeded && tier==='CREATE' && commandData.open_location){
+      const openId='open_'+Date.now();
+      bodyHtml+=`<button class="confirm-btn cancel" id="${openId}" onclick="openLocation('${openId}')">Open location</button>`;
+      d._openLocation=commandData.open_location;
+      d.id=openId+'_msg';
     }
-    if(exec && exec.stderr && !exec.success && !exec.failure_reason){
-      bodyHtml+=`<div class="cmd-output" style="border-color:rgba(255,84,112,0.3);color:var(--red)">${esc(exec.stderr)}</div>`;
-    }
+  }
+  /* ── Medium-confidence command confirmation ── */
+  else if(source==='command_review' && commandData){
+    const confirmId='review_'+Date.now();
+    extra=`<span class="source-badge cmd">\u26a1 REVIEW</span><span class="cmd-tier ${commandData.tier==='CREATE'?'create':'safe'}">${esc(commandData.tier||'SAFE')}</span>`;
+    bodyHtml=`<div class="confirm-panel" id="${searchId}">`
+      +`<div class="confirm-panel-title" style="color:var(--teal)">Confirm interpretation</div>`
+      +`<p>${esc(commandData.interpretation||'')}</p>`
+      +`<div class="confirm-panel-cmd">${esc(commandData.display_command||'')}</div>`
+      +`<div class="confirm-actions">`
+      +`<button class="confirm-btn execute" style="background:var(--teal);color:#03211D" onclick="confirmCommand('${confirmId}')">Yes</button>`
+      +`<button class="confirm-btn cancel" onclick="changeCommand()">Change</button>`
+      +`</div></div>`;
+    d._commandData=commandData;
+    d.id=confirmId+'_msg';
   }
   /* ── Destructive command pending confirmation ── */
   else if(source==='command_pending' && commandData){
@@ -924,12 +1085,17 @@ async function confirmCommand(confirmId){
     const res=await fetch(`${API}/api/execute`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command_data:{...cd,natural_input:cd.natural_input||''}, confirmed:true})});
     const result=await res.json();
     if(panel){
-      let html=`<p style="color:var(--teal);font-family:var(--font-display);font-weight:600;font-size:12px">\u2705 Command executed</p>`;
-      html+=`<div class="cmd-block">${esc(cd.display_command)}</div>`;
+      const success=Boolean(result&&result.success);
+      let html=`<p class="cmd-status ${success?'success':'failure'}">${success?'\u2705 Command succeeded':'\u274c Command failed'}`
+        +`${result&&result.exit_code!==null&&result.exit_code!==undefined?` (exit code ${esc(result.exit_code)})`:''}</p>`;
+      html+=`<details class="answer-details"><summary>Show command and raw output</summary>`
+        +`<div class="cmd-block">${esc(cd.display_command)}</div>`;
+      if(result.failure_reason) html+=`<div class="cmd-failure">${esc(result.failure_reason)}</div>`;
       if(result.stdout) html+=`<div class="cmd-output">${esc(result.stdout)}</div>`;
-      if(result.stderr && !result.success) html+=`<div class="cmd-output" style="border-color:rgba(255,84,112,0.3);color:var(--red)">${esc(result.stderr)}</div>`;
-      if(!result.success && result.error) html+=`<p style="color:var(--red);font-size:12px;margin-top:6px">${esc(result.error)}</p>`;
-      panel.style.borderColor='rgba(45,212,191,0.3)';
+      if(result.stderr) html+=`<div class="cmd-output" style="border-color:rgba(255,84,112,0.3);color:var(--red)">${esc(result.stderr)}</div>`;
+      html+=`</details>`;
+      if(!success && result.error) html+=`<p style="color:var(--red);font-size:12px;margin-top:6px">${esc(result.error)}</p>`;
+      panel.style.borderColor=success?'rgba(45,212,191,0.3)':'rgba(255,84,112,0.4)';
       panel.innerHTML=html;
     }
   } catch(e){
@@ -1000,12 +1166,24 @@ async function sendMsg(){
       appendAI(e.error||'Server error','error');
     } else {
       const d=await res.json();
+      loginMonitorStatus=d.login_monitor||null;
+      if(loginMonitorStatus){
+        const dot=document.getElementById('dot-logins'), value=document.getElementById('mv-logins');
+        if(!loginMonitorStatus.ready){
+          dot.className='dot warn';
+          value.textContent='setup needed';
+          value.title=(loginMonitorStatus.issues||[]).join('\n');
+        }else{
+          dot.className='dot on';
+          value.title='Logon auditing is enabled and the monitor is running.';
+        }
+      }
       const answer = d.answer||'(empty response)';
       const source = d.source||'offline';
       const commandData = d.command_data||null;
       /* Remove network running indicator if present */
       if(networkRunningEl){ networkRunningEl.remove(); networkRunningEl=null; }
-      appendAI(answer, source, commandData);
+      appendAI(answer, source, commandData, d.options, d.web_fallback_category, d.sanitized_query);
       /* Store this Q&A in the current session */
       addToSession(text, answer, source);
     }
@@ -1097,11 +1275,28 @@ async function dismissAlert(id, ev){
   if(ev){ ev.preventDefault(); ev.stopPropagation(); }
   try{
     const res=await fetch(`${API}/api/alerts/${id}/acknowledge`,{method:'POST'});
-    if(!res.ok) throw 0;
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
     await pollStatus();
-  }catch{
-    /* leave tooltip as-is; next status poll will refresh */
+  }catch(error){
+    apiToast.textContent=`Could not dismiss alert: ${error.message}`;
+    apiToast.classList.add('show');
   }
+}
+async function fixAlert(id, ev){
+  if(ev){ ev.preventDefault(); ev.stopPropagation(); }
+  try{
+    const res=await fetch(`${API}/api/alerts/${id}/resolve`,{method:'POST'});
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    await pollStatus();
+  }catch(error){
+    apiToast.textContent=`Could not mark alert resolved: ${error.message}`;
+    apiToast.classList.add('show');
+  }
+}
+function toggleAlertHistory(ev){
+  if(ev){ ev.preventDefault(); ev.stopPropagation(); }
+  showAlertHistory=!showAlertHistory;
+  updateThreatLevel(Number(document.getElementById('alertsMetric').textContent)||0);
 }
 document.addEventListener('click', (ev)=>{
   const tip=document.getElementById('threatTooltip');
@@ -1114,43 +1309,60 @@ async function updateThreatLevel(total){
   const tb=threatBadge;
   const tooltipBody=document.getElementById('threatTooltipBody');
   tb.className='threat-level';
-  if(total===0){
-    tb.classList.add('low');threatText.textContent='THREAT LEVEL: LOW';
-    tooltipBody.innerHTML='<div class="threat-tooltip-empty">No alerts \u2014 system is clean.</div>';
-    return;
-  }
   try{
-    const res=await fetch(`${API}/api/alerts?limit=50`); if(!res.ok) throw 0;
-    const alerts=await res.json();
+    const openRes=await fetch(`${API}/api/alerts?active=1&limit=100`);
+    if(!openRes.ok) throw new Error(`HTTP ${openRes.status}`);
+    const openAlerts=await openRes.json();
     const since=new Date(Date.now()-86400000).toISOString();
-    const rec=alerts.filter(a=>a.timestamp>=since);
-    const hi=rec.filter(a=>(a.severity||'').toUpperCase()==='HIGH').length;
-    const med=rec.filter(a=>(a.severity||'').toUpperCase()==='MEDIUM').length;
+    const recentOpen=openAlerts.filter(a=>a.timestamp>=since);
+    const hi=recentOpen.filter(a=>(a.severity||'').toUpperCase()==='HIGH').length;
+    const med=recentOpen.filter(a=>(a.severity||'').toUpperCase()==='MEDIUM').length;
     if(hi>0){tb.classList.add('high');threatText.textContent='THREAT LEVEL: HIGH \u2014 '+hi+' HIGH alert(s)';}
     else if(med>=3){tb.classList.add('med');threatText.textContent='THREAT LEVEL: MEDIUM \u2014 '+med+' alerts';}
-    else{tb.classList.add('low');threatText.textContent=total>0?'THREAT LEVEL: LOW \u2014 '+total+' minor alert(s)':'THREAT LEVEL: LOW';}
+    else{tb.classList.add('low');threatText.textContent=recentOpen.length>0?'THREAT LEVEL: LOW \u2014 '+recentOpen.length+' minor alert(s)':'THREAT LEVEL: LOW';}
 
-    /* Populate tooltip with top alert reasons */
+    const title=document.getElementById('alertSectionTitle');
+    const toggle=document.getElementById('alertHistoryToggle');
+    let rec=recentOpen;
+    if(showAlertHistory){
+      const allRes=await fetch(`${API}/api/alerts?active=0&limit=100`);
+      if(!allRes.ok) throw new Error(`HTTP ${allRes.status}`);
+      const allAlerts=await allRes.json();
+      rec=allAlerts.filter(a=>(a.status||((a.acknowledged)?'ACKNOWLEDGED':'OPEN')).toUpperCase()!=='OPEN');
+    }
+    title.textContent=showAlertHistory?'Alert history':'OPEN Alerts (24h)';
+    toggle.textContent=showAlertHistory?'Show open alerts':'Show history';
+
     if(rec.length===0){
-      tooltipBody.innerHTML='<div class="threat-tooltip-empty">No alerts \u2014 system is clean.</div>';
+      tooltipBody.innerHTML=showAlertHistory
+        ?'<div class="threat-tooltip-empty">No acknowledged or resolved alerts in history.</div>'
+        :'<div class="threat-tooltip-empty">No open alerts \u2014 system is clean.</div>';
     } else {
       const shown=rec.slice(0,6);
       let html='';
       shown.forEach(a=>{
         const sev=(a.severity||'LOW').toUpperCase();
         const sevClass=sev==='HIGH'?'high':sev==='MEDIUM'?'med':'low';
+        const status=(a.status||((a.acknowledged)?'ACKNOWLEDGED':'OPEN')).toUpperCase();
+        const statusClass=status.toLowerCase();
         const cat=esc(a.category||'alert');
         const msg=esc(a.message||'No details');
+        const summary=esc(alertSummary(a));
         const occ=(a.occurrence_count||1)>1?` <span class="threat-tooltip-occ">\u00d7${a.occurrence_count}</span>`:'';
-        const reasonHtml=a.reason?`<div class="threat-tooltip-why"><b>Why:</b> ${esc(a.reason)}</div>`:'';
+        const reasonHtml=(a.message||a.reason)
+          ?`<details class="answer-details"><summary>Show alert details</summary>`
+            +`${a.message?`<div class="threat-tooltip-why"><b>Details:</b> ${msg}</div>`:''}`
+            +`${a.reason?`<div class="threat-tooltip-why"><b>Why:</b> ${esc(a.reason)}</div>`:''}</details>`
+          :'';
         const aid=Number(a.id)||0;
         html+=`<div class="threat-tooltip-row">`
           +`<span class="threat-tooltip-sev ${sevClass}">${sev}</span>`
-          +`<div style="flex:1;min-width:0"><div class="threat-tooltip-msg">${msg}${occ}</div>`
+          +`<div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:6px;margin-bottom:3px"><span class="alert-status ${statusClass}">${esc(status)}</span></div>`
+          +`<div class="threat-tooltip-msg">${summary}${occ}</div>`
           +reasonHtml
           +`<div class="threat-tooltip-actions">`
           +`<div class="threat-tooltip-cat">${cat}</div>`
-          +(aid?`<button type="button" class="threat-dismiss" onclick="dismissAlert(${aid},event)">Dismiss</button>`:'')
+          +(aid&&status==='OPEN'?`<button type="button" class="threat-dismiss" onclick="dismissAlert(${aid},event)">Dismiss</button><button type="button" class="threat-fix" onclick="fixAlert(${aid},event)">Fix This</button>`:'')
           +`</div></div></div>`;
       });
       if(rec.length>6) html+=`<div class="threat-tooltip-row" style="color:var(--text-dim);font-style:italic;">+${rec.length-6} more alert(s)\u2026</div>`;
@@ -1170,9 +1382,24 @@ function levelOf(table,row){
   if(table==='login_events'&&row.success===0) return 'warn';
   return 'ok';
 }
+function alertSummary(row){
+  const summaries={
+    failed_login_burst:'Multiple failed sign-in attempts detected',
+    new_startup_entry:'A startup entry was added',
+  };
+  const category=(row.category||'').toLowerCase();
+  if(summaries[category]) return summaries[category];
+  const readable=category.replace(/_/g,' ').trim();
+  return readable?`${readable.charAt(0).toUpperCase()+readable.slice(1)} alert`:'Security alert recorded';
+}
 function textOf(table,row){
   switch(table){
-    case 'alerts': return `<b>${esc(row.category||'Alert')}</b> \u2014 ${esc(row.message||'')} <span class="tag">[${esc(row.severity||'')}]</span>`;
+    case 'alerts': {
+      const status=(row.status||((row.acknowledged)?'ACKNOWLEDGED':'OPEN')).toUpperCase();
+      return `<b>${esc(alertSummary(row))}</b> <span class="tag">${esc(row.severity||'')}</span> <span class="tag">${esc(status)}</span>`
+        +`<details class="feed-detail"><summary>Show alert details</summary>${esc(row.message||'No details')}`
+        +`${row.reason?`<br>${esc(row.reason)}`:''}</details>`;
+    }
     case 'process_snapshots': return `Process <b>${esc(row.name||String(row.pid))}</b> <span class="tag">${esc(row.event||'')}</span>`;
     case 'port_snapshots': return `Port <b>${row.port}</b> ${esc(row.event||'')} by <b>${esc(row.process_name||String(row.pid||'?'))}</b>`;
     case 'login_events': return row.success===0?`Failed login <b>${esc(row.username||'?')}</b> <span class="tag">${esc(row.source_ip||'local')}</span>`:`Login <b>${esc(row.username||'?')}</b> ok`;
@@ -1292,8 +1519,10 @@ async function pollMonitors(){
     const rows=await res.json();
     const failedLogins=rows.filter(r=>r.table==='login_events'&&r.success===0);
     const dotL=document.getElementById('dot-logins'), valL=document.getElementById('mv-logins');
-    if(failedLogins.length){dotL.className='dot warn';valL.textContent=failedLogins.length+' failed';}
-    else{dotL.className='dot on';valL.textContent='clean';}
+    if(loginMonitorStatus&&loginMonitorStatus.ready){
+      if(failedLogins.length){dotL.className='dot warn';valL.textContent=failedLogins.length+' failed';}
+      else{dotL.className='dot on';valL.textContent='clean';}
+    }
     const downloads=rows.filter(r=>r.table==='downloads');
     document.getElementById('mv-downloads').textContent=downloads.length?downloads.length+' found':'idle';
     const procs=new Set(rows.filter(r=>r.table==='process_snapshots').map(r=>r.pid));

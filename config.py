@@ -58,6 +58,11 @@ FS_WATCH_PATHS = [
 OLLAMA_BASE_URL = os.getenv("CS_OLLAMA_BASE_URL", "http://localhost:11434/v1/chat/completions")
 LLM_MODEL = os.getenv("CS_LLM_MODEL", "qwen2.5:3b")
 LLM_ENABLED = os.getenv("CS_LLM_ENABLED", "true").lower() == "true"
+OLLAMA_EMBED_MODEL = os.getenv("CS_OLLAMA_EMBED_MODEL", "nomic-embed-text")
+CLOUD_LLM_ENABLED = os.getenv("CS_CLOUD_LLM_ENABLED", "false").lower() == "true"
+CLOUD_LLM_BASE_URL = os.getenv("CS_CLOUD_LLM_BASE_URL", "")
+CLOUD_LLM_MODEL = os.getenv("CS_CLOUD_LLM_MODEL", "")
+CLOUD_LLM_API_KEY = os.getenv("CS_CLOUD_LLM_API_KEY", "")
 
 # ---------------------------------------------------------------------------
 # Alert thresholds

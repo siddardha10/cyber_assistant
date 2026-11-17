@@ -5,11 +5,12 @@ Watches the classic Windows autorun surfaces:
   - HKCU/HKLM ...\\Run and ...\\RunOnce registry keys
   - The Startup folder (shell:startup) for both the user and all users
 
-Diffs against the previous snapshot (kept in memory) so we only log actual
-additions/removals, not the whole list every cycle.
+Persists a complete initial baseline, then logs actual additions/removals.
+Generated registration hashes are grouped as one logical startup entry.
 """
 
 import threading
+import re
 from pathlib import Path
 
 import config
@@ -38,7 +39,52 @@ _STARTUP_FOLDERS = [
     Path("C:/ProgramData/Microsoft/Windows/Start Menu/Programs/Startup"),
 ]
 
-_previous = {}  # name -> (command, location)
+_previous = {}  # logical identity -> (command, location, raw name)
+_BASELINE_STATE_KEY = "startup_baseline_complete"
+
+
+def normalize_startup_name(name: str) -> str:
+    """Hide volatile GUID/hash suffixes for well-known auto-generated entries."""
+    return re.sub(
+        r"^(MicrosoftEdgeAutoLaunch)_[0-9a-f-]{8,}$",
+        r"\1",
+        name or "",
+        flags=re.IGNORECASE,
+    )
+
+
+def _entry_identity(name: str, location: str) -> str:
+    normalized_name = normalize_startup_name(name).casefold()
+    if location.startswith(("HKCU", "HKLM")):
+        return f"{location.casefold()}:{normalized_name}"
+    return f"folder:{normalized_name}"
+
+
+def _group_current_entries(entries: dict) -> dict:
+    grouped = {}
+    for key, (command, location) in entries.items():
+        name = key.split(":", 1)[1]
+        grouped[_entry_identity(name, location)] = (command, location, name)
+    return grouped
+
+
+def _load_previous_snapshot() -> dict:
+    rows = db.run_readonly_query(
+        "SELECT name, command, location, action FROM startup_entries ORDER BY id"
+    )
+    current = {}
+    for row in rows:
+        name = row.get("name") or ""
+        identity = _entry_identity(name, row.get("location") or "")
+        if row.get("action") == "removed":
+            current.pop(identity, None)
+        else:
+            current[identity] = (
+                row.get("command") or "",
+                row.get("location") or "",
+                name,
+            )
+    return current
 
 
 def _read_registry_entries() -> dict:
@@ -77,12 +123,33 @@ def _cycle():
     current.update(_read_startup_folders())
 
     now = db.now_iso()
-    added = set(current.keys()) - set(_previous.keys())
-    removed = set(_previous.keys()) - set(current.keys())
+    current_logical = _group_current_entries(current)
+    baseline = db.run_readonly_query(
+        "SELECT value FROM monitor_state WHERE key = ?",
+        (_BASELINE_STATE_KEY,),
+    )
+
+    if not baseline:
+        for key, (command, location) in current.items():
+            name = key.split(":", 1)[1]
+            db.insert("startup_entries", {
+                "timestamp": now, "name": name, "command": command,
+                "location": location, "action": "baseline",
+            })
+        db.insert("monitor_state", {"key": _BASELINE_STATE_KEY, "value": now})
+        _previous.clear()
+        _previous.update(current_logical)
+        log.info("Startup baseline recorded: %d existing raw entries.", len(current))
+        return
+
+    if not _previous:
+        _previous.update(_load_previous_snapshot())
+
+    added = set(current_logical.keys()) - set(_previous.keys())
+    removed = set(_previous.keys()) - set(current_logical.keys())
 
     for key in added:
-        command, location = current[key]
-        name = key.split(":", 1)[1]
+        command, location, name = current_logical[key]
         db.insert("startup_entries", {
             "timestamp": now, "name": name, "command": command,
             "location": location, "action": "added",
@@ -98,19 +165,27 @@ def _cycle():
                     "Usually this is a legitimate app asking to auto-launch (Discord, updaters, etc.)."
                 ),
                 source_table="startup_entries",
-                dedup_key=f"new_startup_entry:{name}",
+                dedup_key=f"new_startup_entry:{normalize_startup_name(name)}",
             )
 
     for key in removed:
-        command, location = _previous[key]
-        name = key.split(":", 1)[1]
+        command, location, name = _previous[key]
         db.insert("startup_entries", {
             "timestamp": now, "name": name, "command": command,
             "location": location, "action": "removed",
         })
 
+    for key in set(current_logical) & set(_previous):
+        command, location, name = current_logical[key]
+        previous_name = _previous[key][2]
+        if name != previous_name and normalize_startup_name(name) == normalize_startup_name(previous_name):
+            db.insert("startup_entries", {
+                "timestamp": now, "name": name, "command": command,
+                "location": location, "action": "observed",
+            })
+
     _previous.clear()
-    _previous.update(current)
+    _previous.update(current_logical)
 
 
 def run_forever(stop_event: threading.Event):
